@@ -95,12 +95,12 @@ class test_wcsph(unittest.TestCase):
         wcsph.Momentum(mass, pi, pressure, rho, dwij)
 
         # Verify
-        self.assertLess(particles[0].a[0], 0,
+        self.assertLess(pi.a[0], 0,
                         msg='Accelerating in the wrong x-direction.')
-        self.assertLess(particles[0].a[1], 0,
+        self.assertLess(pi.a[1], 0,
                         msg='Accelerating in the wrong y-direction.')
-        self.assertAlmostEqual(particles[0].a[0], -214.39581666)
-        self.assertAlmostEqual(particles[0].a[1], -190.99652198)
+        self.assertAlmostEqual(pi.a[0], -214.39581666 / 1000 * pi.rho)
+        self.assertAlmostEqual(pi.a[1], -190.99652198 / 1000 * pi.rho)
 
     def test_continuity_two_particles(self):
         pass
