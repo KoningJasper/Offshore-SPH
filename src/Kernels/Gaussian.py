@@ -1,10 +1,9 @@
 import numpy as np
-import scipy.spatial
 from src.Kernels.Kernel import Kernel
 
 
 class Gaussian(Kernel):
-    """ 
+    """
     This represents the gaussian kernel.
 
     The equation of the gaussian kernel is as follows:
@@ -51,9 +50,9 @@ class Gaussian(Kernel):
 
         return k
 
-    def gradient(self, x, r, h):
+    def gradient(self, x: np.array, r: np.array, h: np.array) -> np.array:
         """ 
-        Evaluates the gradient with respect to point x1 and x2 at point x1. 
+        Evaluates the gradient with respect to point x1 and x2 at point x1.
 
         grad = -2 * alpha * exp(-R^2)
         """

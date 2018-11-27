@@ -1,6 +1,5 @@
 from matplotlib.animation import FuncAnimation
 from sys import stdout
-import math
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
@@ -29,7 +28,7 @@ class Animation:
         Initialize a new animation
 
         # Parameters #
-        x: numpy array of the x positions 
+        x: numpy array of the x positions
         """
         self.x = x
         self.y = y

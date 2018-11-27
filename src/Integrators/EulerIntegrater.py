@@ -4,6 +4,7 @@ from src.Particle import Particle
 class EulerIntegrater():
     """ Stupidly simple Euler Integrator """
 
+    @classmethod
     def integrate(self, dt: float, p: Particle):
         """
         Parameters:
