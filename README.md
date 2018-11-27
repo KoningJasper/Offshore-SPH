@@ -8,13 +8,15 @@ A study in offshore use of smoothed particle hydrodynamics (SPH). This project a
 
 SPH is a simulation method originally developed by J.A. Monaghan in his 1977 paper. It is a langrangian simulation method that does not require the use of a mesh. Instead an gas, fluid or solid is simulated by (macro) particles. These particles discretize the objects properties and provide interpolation points for the simulation.
 
-The two main forms of fluid SPH are implemented in this program: `WCSPH` and `ICSPH`. WCSPH stands for weakly compressible SPH and
+The two main forms of fluid SPH are implemented in this program: `WCSPH` and `ICSPH`. WCSPH stands for weakly compressible SPH, it assumes the fluid to be slightly compressible and is the original SPH method for the simulation of fluids. It's very easy to implement and captures phenomenon occuring in medium speed well. It's suitable for simulation of dam-breaks and other low speed fluid problems.
+
+ICSPH or Incompressible SPH differs from WCSPH in that it treats the fluid as in-compressible. This in a generally correct assumption since the density of water hardly increases with added pressure in real life.
 
 ## Required Software
 
 The following software is required to run the project and get all the results.
 
-- Python 3.7
+- Python 3.6
 - ffmpeg (for the generation of animations)
 
 All python packages are contained in the requirements.txt file. These can be installed using the following command.
