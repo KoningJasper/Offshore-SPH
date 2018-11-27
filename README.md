@@ -2,7 +2,6 @@
 
 [![Codacy Badge](https://api.codacy.com/project/badge/Grade/14d8416e36b14a98bd533dcfb2f4166a)](https://app.codacy.com/app/KoningJasper/Offshore-SPH?utm_source=github.com&utm_medium=referral&utm_content=KoningJasper/Offshore-SPH&utm_campaign=Badge_Grade_Dashboard)
 [![Build Status](https://travis-ci.org/KoningJasper/Offshore-SPH.svg?branch=master)](https://travis-ci.org/KoningJasper/Offshore-SPH)
-
 [![codecov](https://codecov.io/gh/KoningJasper/Offshore-SPH/branch/master/graph/badge.svg)](https://codecov.io/gh/KoningJasper/Offshore-SPH)
 
 A study in offshore use of smoothed particle hydrodynamics (SPH). This project aims to provide a simple and interactive SPH simulator, complete with results viewing, and boundary condition generation specifically designed for the offshore industry. It focusses on 2D interactions, however, it can be extended to cover 3D scenarios.
