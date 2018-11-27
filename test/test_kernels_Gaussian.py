@@ -1,37 +1,67 @@
 import unittest
-import src.Kernels.Gaussian
+from src.Kernels.Gaussian import Gaussian
 import numpy as np
 
-class test_kernels_Gaussian(unittest.TestCase):
 
-    def test_alpha(self):
-        self.assertAlmostEqual(src.Kernels.Gaussian.Gaussian().alpha, 0.31830988618379064)
-        self.assertAlmostEqual(src.Kernels.Gaussian.Gaussian().alpha, 0.31830988618379064 / 4)
-        self.assertAlmostEqual(src.Kernels.Gaussian.Gaussian().alpha, 0.31830988618379064 * 4)
+class test_kernels_Gaussian(unittest.TestCase):
+    """ Tests the Gaussian kernel implementation against known values of the gaussian kernel """
 
     def test_evaluate(self):
-        """ Evaluates distances 0.5, 1.0 and 2.0 against the kernel implementation. """
-        kernel = src.Kernels.Gaussian.Gaussian()
-        self.assertAlmostEqual(kernel.evaluate(x=None, r=np.array([0.5]), h=np.array([1.0]))[0], 0.2478999886193059)
-        self.assertAlmostEqual(kernel.evaluate(x=None, r=np.array([1.0]), h=np.array([1.0]))[0], 0.11709966304863831)
-        self.assertAlmostEqual(kernel.evaluate(x=None, r=np.array([2.0]), h=np.array([1.0]))[0], 0.005830048930056386)
+        # Arrange
+        kernel = Gaussian()
+        x = np.array([0., 0.])
+        r = np.array([0.5])
+        h = np.array([1.])
 
-        kernel = src.Kernels.Gaussian.Gaussian()
-        self.assertAlmostEqual(kernel.evaluate(x=None, r=np.array([0.5]), h=np.array([0.5]))[0], 0.07475611627593091)
-        self.assertAlmostEqual(kernel.evaluate(x=None, r=np.array([1.0]), h=np.array([0.5]))[0], 0.061974997154826475)
-        self.assertAlmostEqual(kernel.evaluate(x=None, r=np.array([2.0]), h=np.array([0.5]))[0], 0.029274915762159577)
+        # Act
+        val = kernel.evaluate(x, r, h)[0]
+
+        # Assert
+        self.assertAlmostEqual(val, 0.2478999886193059)
+
+    def test_derivative(self):
+        # Arrange
+        kernel = Gaussian()
+        r = np.array([0.25])
+        h = np.array([0.5])
+
+        # Act
+        val = kernel.derivative(r, h)[0]
+
+        # Assert
+        self.assertAlmostEqual(val, -0.9915999544772236)
 
     def test_gradient(self):
-        """ Evaluates distances 0.5, 1.0 and 2.0 against the kernel implementation. """
-        kernel = src.Kernels.Gaussian.Gaussian()
-        self.assertAlmostEqual(kernel.gradient(r=0.5), -0.3718499829289588)
-        self.assertAlmostEqual(kernel.gradient(r=1.0), 0.0)
-        self.assertAlmostEqual(kernel.gradient(r=2.0), 0.034980293580338315)
+        # Arrange
+        kernel = Gaussian()
+        x = np.array([1., 1.])
+        r = np.array([0.25])
+        h = np.array([1.3 * 0.25])
 
-        kernel = src.Kernels.Gaussian.Gaussian()
-        self.assertAlmostEqual(kernel.gradient(r=0.5), -0.07008385900868523)
-        self.assertAlmostEqual(kernel.gradient(r=1.0), -0.04648124786611985)
-        self.assertAlmostEqual(kernel.gradient(r=2.0), 0.0)
+        # Act
+        grad = kernel.gradient(x, r, h)[0]
+
+        # Assert
+        self.assertAlmostEqual(grad[0], -31.576769410027108)
+        self.assertAlmostEqual(grad[1], -31.576769410027108)
+
+    def test_gradient_array(self):
+        """ Verifies if it performs well on multiple entries. """
+        # Arrange
+        kernel = Gaussian()
+        x = np.array([[1., 1.], [0.5, 0.5]])
+        r = np.array([0.25, 0.25])
+        h = np.array([1, 1]) * 1.3 * 0.25
+
+        # Act
+        grad = kernel.gradient(x, r, h)
+
+        # Assert
+        self.assertAlmostEqual(grad[0][0], -31.576769410027108)
+        self.assertAlmostEqual(grad[0][1], -31.576769410027108)
+        self.assertAlmostEqual(grad[1][0], -15.788384705013554)
+        self.assertAlmostEqual(grad[1][1], -15.788384705013554)
+
 
 if __name__ == '__main__':
     unittest.main()
