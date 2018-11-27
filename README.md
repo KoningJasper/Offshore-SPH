@@ -1,5 +1,6 @@
 # Offshore-SPH
 
+[![Codacy Badge](https://api.codacy.com/project/badge/Grade/14d8416e36b14a98bd533dcfb2f4166a)](https://app.codacy.com/app/KoningJasper/Offshore-SPH?utm_source=github.com&utm_medium=referral&utm_content=KoningJasper/Offshore-SPH&utm_campaign=Badge_Grade_Dashboard)
 [![Build Status](https://travis-ci.org/KoningJasper/Offshore-SPH.svg?branch=master)](https://travis-ci.org/KoningJasper/Offshore-SPH)
 
 [![codecov](https://codecov.io/gh/KoningJasper/Offshore-SPH/branch/master/graph/badge.svg)](https://codecov.io/gh/KoningJasper/Offshore-SPH)
