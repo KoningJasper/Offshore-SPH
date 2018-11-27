@@ -1,5 +1,9 @@
 # Offshore-SPH
 
+[![Build Status](https://travis-ci.org/KoningJasper/Offshore-SPH.svg?branch=master)](https://travis-ci.org/KoningJasper/Offshore-SPH)
+
+[![codecov](https://codecov.io/gh/KoningJasper/Offshore-SPH/branch/master/graph/badge.svg)](https://codecov.io/gh/KoningJasper/Offshore-SPH)
+
 A study in offshore use of smoothed particle hydrodynamics (SPH). This project aims to provide a simple and interactive SPH simulator, complete with results viewing, and boundary condition generation specifically designed for the offshore industry. It focusses on 2D interactions, however, it can be extended to cover 3D scenarios.
 
 SPH is a simulation method originally developed by J.A. Monaghan in his 1977 paper. It is a langrangian simulation method that does not require the use of a mesh. Instead an gas, fluid or solid is simulated by (macro) particles. These particles discretize the objects properties and provide interpolation points for the simulation.
