@@ -38,13 +38,13 @@ class WCSPH:
             (1 + (p.rho * 9.81 * (self.H - y)) / self.B) ** (1/self.gamma)
 
     @classmethod
-    def loop_initialize(p: Particle):
+    def loop_initialize(self, p: Particle):
         """ Initialize loop, resets certain properties """
         p.a = np.array([0., 0.])
         p.drho = 0.
 
     @classmethod
-    def Momentum(mass: float, p: Particle, pressure: np.array, rho: np.array, dwij: np.array) -> None:
+    def Momentum(self, mass: float, p: Particle, pressure: np.array, rho: np.array, dwij: np.array) -> None:
         """
             Monaghan Momentum equation
         """
@@ -62,7 +62,7 @@ class WCSPH:
         p.a += np.sum(np.multiply(vec, dwij), axis=0)
 
     @classmethod
-    def Continuity(mass: float, pi: Particle, xij: np.array, rij: np.array, dwij: np.array, vij: np.array) -> None:
+    def Continuity(self, mass: float, pi: Particle, xij: np.array, rij: np.array, dwij: np.array, vij: np.array) -> None:
         """
             SPH continuity equation
         """
@@ -70,7 +70,7 @@ class WCSPH:
         pi.drho += np.sum(mass * vdotw)
 
     @classmethod
-    def Gravity(p: Particle, gx: float, gy: float) -> None:
+    def Gravity(self, p: Particle, gx: float, gy: float) -> None:
         p.a[0] += gx
         p.a[1] += gy
 
