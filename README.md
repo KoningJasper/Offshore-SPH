@@ -32,3 +32,10 @@ Tests are contained in the `test` folder and follow the same structure as the so
 ## Examples
 
 Examples are contained in the `example` directory. These examples contain validation cases such as a 2D dam break, boundary condition verification, and other SPH research replication. All the examples create animations as output and therefore require `ffmpeg` to be installed, ffmpeg can be acquired from the following location.
+
+Examples can be run by using the following command in the root folder of the project.
+```sh
+python -m example.dam_break_simple
+```
+
+Running this example should only take a couple of minutes and create a ``dam_break_simple.mp4`` video in the root folder of the project.
