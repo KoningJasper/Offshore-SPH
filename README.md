@@ -16,7 +16,7 @@ ICSPH or Incompressible SPH differs from WCSPH in that it treats the fluid as in
 
 The following software is required to run the project and get all the results.
 
-- Python 3.6
+- Python 3.6 (64-bit)
 - ffmpeg (for the generation of animations)
 
 All python packages are contained in the requirements.txt file. These can be installed using the following command.
@@ -31,7 +31,7 @@ Tests are contained in the `test` folder and follow the same structure as the so
 
 ## Examples
 
-Examples are contained in the `example` directory. These examples contain validation cases such as a 2D dam break, boundary condition verification, and other SPH research replication. All the examples create animations as output and therefore require `ffmpeg` to be installed, ffmpeg can be acquired from the following location.
+Examples are contained in the `examples` directory. These examples contain validation cases such as a 2D dam break, boundary condition verification, and other SPH research replication. All the examples create animations as output and therefore require `ffmpeg` to be installed, ffmpeg can be acquired from the following location.
 
 Examples can be run by using the following command in the root folder of the project.
 ```sh

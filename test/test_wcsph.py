@@ -2,6 +2,11 @@ import unittest
 import math
 import numpy as np
 import scipy.spatial
+
+# Add parent folder to path
+import sys
+sys.path.append("..")
+
 from src.Particle import Particle
 from src.Equations.WCSPH import WCSPH
 from src.Kernels.Gaussian import Gaussian
@@ -31,7 +36,7 @@ class test_wcsph(unittest.TestCase):
         wcsph = WCSPH(height=2.0)
         mass = 1.0
         h = np.ones(2)
-        particles = [Particle('fluid', 0, 0), Particle('fluid', 0.2, 0)]
+        particles = [Particle('fluid', 0, 0, mass), Particle('fluid', 0.2, 0, mass)]
 
         r = np.array([p.r for p in particles])
         dist = scipy.spatial.distance.cdist(r, r, 'euclidean')
@@ -74,7 +79,7 @@ class test_wcsph(unittest.TestCase):
 
         particles = []
         for i in range(len(x)):
-            particles.append(Particle('fluid', x[i], y[i]))
+            particles.append(Particle('fluid', x[i], y[i], mass))
 
         # Init density
         for p in particles:
@@ -99,8 +104,33 @@ class test_wcsph(unittest.TestCase):
                         msg='Accelerating in the wrong x-direction.')
         self.assertLess(pi.a[1], 0,
                         msg='Accelerating in the wrong y-direction.')
-        self.assertAlmostEqual(pi.a[0], -214.39581666 / 1000 * pi.rho)
-        self.assertAlmostEqual(pi.a[1], -190.99652198 / 1000 * pi.rho)
+        self.assertAlmostEqual(pi.a[0], -214.39581666)
+        self.assertAlmostEqual(pi.a[1], -190.99652198)
 
     def test_continuity_two_particles(self):
-        pass
+        # Arange
+        wcsph = WCSPH(height=2.0)
+        mass = 5.0
+        h = np.ones(2) * 0.5
+        particles = [Particle('fluid', 0, 0, mass), Particle('fluid', 0.2, 0, mass)]
+
+        r = np.array([p.r for p in particles])
+        dist = scipy.spatial.distance.cdist(r, r, 'euclidean')
+
+        # set the initial conditions
+        for p in particles:
+            p.p = 9.81 * 2 * 1000
+
+        kernel = Gaussian()
+
+        xij: np.array = r[:] - particles[0].r
+        rij: np.array = dist[0, :]
+        vij: np.array = np.ones([2, 2])
+        dwij: np.array = kernel.gradient(xij, rij, h)
+
+        # Act
+        wcsph.Continuity(mass, particles[0], xij, rij, dwij, vij)
+
+        # Verify
+        self.assertLess(particles[0].drho, 0, msg='Negative density')
+        self.assertAlmostEqual(particles[0].drho, -8.679865359297883 / 1000)

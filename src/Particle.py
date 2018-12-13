@@ -2,22 +2,32 @@ import numpy as np
 
 
 class Particle:
-    def __init__(self, label, x, y, rho: float = 1000):
+    def __init__(self, label: str, x: float, y: float, mass: float, rho: float = 1000):
         self.label = label
         self.r = np.array([x, y])
-        self.v = np.zeros(2)
-        self.a = np.zeros(2)
+        self.m = mass
         self.rho = rho
-        self.p = 0.
-        self.drho = 0.
 
-    r: np.array  # Position
-    v: np.array  # Velocity
-    a: np.array  # Acceleration
+    """ Current position of the particle. """
+    r: np.array
+
+    """ Current velocity of the particle """
+    v: np.array = np.zeros(2)
+
+    """ Acceleration of the particle. """
+    a: np.array = np.zeros(2)
+
+    """ Custom label for the particle, generally either fluid or boundary. """
     label: str
+
+    """ Density of the particle. """
     rho: float
-    p: float
-    drho: float
+
+    """ Pressure of the particle. """
+    p: float = 0.
+
+    """ Density change of the particle. """
+    drho: float = 0.
 
     def __eq__(self, other):
         return self.r[0] == other.r[0] and self.r[1] == other.r[1]

@@ -12,9 +12,9 @@ class EulerIntegrater():
         p: Particle to integrate
         """
 
-        # Don't move boundary particles.
-        if p.label == 'boundary':
-            return
-        p.v += dt * p.a
-        p.r += dt * p.v
+        # Only move fluid particles.
+        if p.label == 'fluid':
+            p.v += dt * p.a
+            p.r += dt * p.v
+
         p.rho += dt * p.drho

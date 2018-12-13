@@ -48,12 +48,12 @@ class WCSPH:
         """
             Monaghan Momentum equation
         """
-        pii: np.array = np.divide(pressure, np.power(rho, 2))
-        pjj: float = p.p / p.rho ** 2
-        tmp: np.array = pii + pjj
+        pii: np.array = np.divide(pressure, np.power(rho, 2)) # Others
+        pjj: float = p.p / np.power(p.rho, 2) # Self
+        tmp: np.array = pii + pjj # Sum
 
         # Create for multiple dimensions
-        fac: np.array = mass * tmp * p.rho
+        fac: np.array = mass * tmp
         vec = np.zeros([len(pressure), 2])
         vec[:, 0] = fac
         vec[:, 1] = fac
@@ -67,7 +67,7 @@ class WCSPH:
             SPH continuity equation
         """
         vdotw = np.diag(np.dot(vij, np.transpose(dwij)))
-        pi.drho += np.sum(mass * vdotw)
+        pi.drho += np.sum(mass * vdotw) / pi.rho
 
     @classmethod
     def Gravity(self, p: Particle, gx: float, gy: float) -> None:

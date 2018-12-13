@@ -1,7 +1,11 @@
 import unittest
-from src.Kernels.Gaussian import Gaussian
 import numpy as np
 
+# Add parent folder to path
+import sys, os
+sys.path.insert(1, os.path.join(sys.path[0], '..'))
+
+from src.Kernels.Gaussian import Gaussian
 
 class test_kernels_Gaussian(unittest.TestCase):
     """ Tests the Gaussian kernel implementation against known values of the gaussian kernel """
