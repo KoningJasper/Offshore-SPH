@@ -14,7 +14,7 @@ from PySPH.Gaussian import Gaussian as pGaussian
 class test_kernels_Gaussian(unittest.TestCase):
     """ Tests the Gaussian kernel implementation against known values of the gaussian kernel """
 
-    def createParticles(self, N: int = 25) -> np.array:
+    def createParticles(self, N: int = 10) -> np.array:
         # Create some particles
         xv = np.linspace(0, 10, N)
         yv = np.linspace(0, 10, N)

@@ -4,12 +4,13 @@ import numpy as np
 import scipy.spatial
 
 # Add parent folder to path
-import sys
-sys.path.append("..")
+import sys, os
+sys.path.insert(1, os.path.join(sys.path[0], '..'))
 
 from src.Particle import Particle
 from src.Equations.WCSPH import WCSPH
 from src.Kernels.Gaussian import Gaussian
+from PySPH.Momentum import MomentumEquation
 
 
 class test_wcsph(unittest.TestCase):
@@ -43,6 +44,7 @@ class test_wcsph(unittest.TestCase):
 
         # set the initial conditions
         for p in particles:
+            wcsph.loop_initialize(p)
             p.p = 9.81 * 2 * 1000
 
         kernel = Gaussian()
@@ -58,18 +60,26 @@ class test_wcsph(unittest.TestCase):
         # Act
         wcsph.Momentum(mass, particles[0], pressure, rho, dwij)
 
+        # PySPH implementation
+        d_au = [0]
+        d_av = [0]
+        # Self
+        MomentumEquation().loop(0, 0, rho, [], pressure, d_au, d_av, 0, [mass, mass], rho, [], pressure, vij, xij, h, [], [], 0, dwij[0, :], [], 0, 0)
+        # Other
+        MomentumEquation().loop(0, 1, rho, [], pressure, d_au, d_av, 0, [mass, mass], rho, [], pressure, vij, xij, h, [], [], 0, dwij[1, :], [], 0, 0)
+
         # Verify
         self.assertLess(particles[0].a[0], 0,
                         msg='Accelerating in the wrong direction.')
-        self.assertAlmostEqual(particles[0].a[0], -4.800288484155583)
-        self.assertAlmostEqual(particles[0].a[1], 0.0)
+        self.assertAlmostEqual(particles[0].a[0], -d_au[0])
+        self.assertAlmostEqual(particles[0].a[1], d_av[0])
 
     def test_momentum_many_particles(self):
         wcsph = WCSPH(height=2)
         kernel = Gaussian()
 
         # Create some particles
-        mass = 1.0
+        mass = 1000.0
         xv = np.linspace(0, 2, 10)
         yv = np.linspace(0, 2, 10)
         x, y = np.meshgrid(xv, yv, indexing='ij')
@@ -129,8 +139,8 @@ class test_wcsph(unittest.TestCase):
         dwij: np.array = kernel.gradient(xij, rij, h)
 
         # Act
-        wcsph.Continuity(mass, particles[0], xij, rij, dwij, vij)
+        wcsph.Continuity(mass, particles[0], dwij, vij)
 
         # Verify
         self.assertLess(particles[0].drho, 0, msg='Negative density')
-        self.assertAlmostEqual(particles[0].drho, -8.679865359297883 / 1000)
+        self.assertAlmostEqual(particles[0].drho, -8.679865359297883)

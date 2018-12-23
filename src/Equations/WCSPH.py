@@ -34,12 +34,11 @@ class WCSPH:
     def height_density(self, p: Particle) -> None:
         """ Sets the density of particle based on height (y) of particle """
         y = p.r[1]
-        p.rho = p.rho * \
-            (1 + (p.rho * 9.81 * (self.H - y)) / self.B) ** (1/self.gamma)
+        p.rho = p.rho * (1 + (p.rho * 9.81 * (self.H - y)) / self.B) ** (1/self.gamma)
 
     @classmethod
     def loop_initialize(self, p: Particle):
-        """ Initialize loop, resets certain properties """
+        """ Initialize loop, resets acceleration and density change. """
         p.a = np.array([0., 0.])
         p.drho = 0.
 
@@ -48,8 +47,8 @@ class WCSPH:
         """
             Monaghan Momentum equation
         """
-        pii: np.array = np.divide(pressure, np.power(rho, 2)) # Others
-        pjj: float = p.p / np.power(p.rho, 2) # Self
+        pii: np.array = np.divide(pressure, rho * rho) # Others
+        pjj: float = p.p / (p.rho * p.rho) # Self
         tmp: np.array = pii + pjj # Sum
 
         # Create for multiple dimensions
@@ -62,12 +61,12 @@ class WCSPH:
         p.a += np.sum(np.multiply(vec, dwij), axis=0)
 
     @classmethod
-    def Continuity(self, mass: float, pi: Particle, xij: np.array, rij: np.array, dwij: np.array, vij: np.array) -> None:
+    def Continuity(self, mass: float, pi: Particle, dwij: np.array, vij: np.array) -> None:
         """
             SPH continuity equation
         """
         vdotw = np.diag(np.dot(vij, np.transpose(dwij)))
-        pi.drho += np.sum(mass * vdotw) / pi.rho
+        pi.drho += np.sum(mass * vdotw)
 
     @classmethod
     def Gravity(self, p: Particle, gx: float, gy: float) -> None:
