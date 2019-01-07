@@ -14,7 +14,7 @@ class EulerIntegrater():
 
         # Only move fluid particles.
         if p.label == 'fluid':
-            p.v += dt * p.a
-            p.r += dt * p.v
+            p.v = p.v + dt * p.a
+            p.r = p.r + dt * p.v
 
-        p.rho += dt * p.drho
+        p.rho = p.rho + dt * p.drho

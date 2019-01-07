@@ -42,36 +42,49 @@ class WCSPH:
         p.a = np.array([0., 0.])
         p.drho = 0.
 
-    @classmethod
     def Momentum(self, mass: float, p: Particle, pressure: np.array, rho: np.array, dwij: np.array) -> None:
         """
             Monaghan Momentum equation
         """
-        pii: np.array = np.divide(pressure, rho * rho) # Others
-        pjj: float = p.p / (p.rho * p.rho) # Self
-        tmp: np.array = pii + pjj # Sum
+        rj = 1.0 / (p.rho * p.rho)
+        pj = p.p * rj
+        for i in range(len(pressure)):
+            ri = 1.0 / (rho[i] * rho[i])
+            qt = pressure[i] * ri
+            pt = qt + pj
 
-        # Create for multiple dimensions
-        fac: np.array = mass * tmp
-        vec = np.zeros([len(pressure), 2])
-        vec[:, 0] = fac
-        vec[:, 1] = fac
+            # DO NOT USE +=
+            # THIS DOES NOT WORK
+            # IT HAS TAKEN YEARS OF MY LIFE.
+            p.a = p.a + mass * pt * dwij[i, :]
+        return p.a
+        # pii: np.array = np.divide(pressure, rho * rho) # Others
+        # pjj: float = p.p / (p.rho * p.rho) # Self
+        # tmp: np.array = pii + pjj # Sum
 
-        # Assign the acceleration
-        p.a += np.sum(np.multiply(vec, dwij), axis=0)
+        # # Create for multiple dimensions
+        # fac: np.array = mass * tmp
+        # vec = np.zeros([len(pressure), 2])
+        # vec[:, 0] = fac
+        # vec[:, 1] = fac
+
+        # # Assign the acceleration
+        # p.a += -1 * np.sum(np.multiply(vec, dwij), axis=0)
 
     @classmethod
-    def Continuity(self, mass: float, pi: Particle, dwij: np.array, vij: np.array) -> None:
+    def Continuity(self, mass: float, pi: Particle, dwij: np.array, vij: np.array, numParticles: int) -> None:
         """
             SPH continuity equation
         """
-        vdotw = np.diag(np.dot(vij, np.transpose(dwij)))
-        pi.drho += np.sum(mass * vdotw)
+        for i in range(numParticles):
+            vdotw: float = np.dot(vij[i, :], dwij[i, :])
+            pi.drho = pi.drho + mass * vdotw
+        # vdotw = np.diag(np.dot(vij, np.transpose(dwij)))
+        # pi.drho = pi.drho + np.sum(mass * vdotw)
 
     @classmethod
     def Gravity(self, p: Particle, gx: float, gy: float) -> None:
-        p.a[0] += gx
-        p.a[1] += gy
+        p.a = p.a + np.array([gx, gy])
 
     def TaitEOS(self, pi: Particle) -> None:
         pi.p = self.B * ((pi.rho / self.rho0) ** self.gamma - 1)

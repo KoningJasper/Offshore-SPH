@@ -1,5 +1,5 @@
 # Add parent folder to path
-import sys, os, tempfile
+import sys, os, tempfile, subprocess
 sys.path.insert(1, os.path.join(sys.path[0], '..'))
 
 import numpy as np
@@ -18,6 +18,8 @@ from src.Particle import Particle
 from src.Equations.WCSPH import WCSPH
 from src.Integrators.EulerIntegrater import EulerIntegrater
 
+from Momentum import MomentumEquation
+
 def create_particles(wcsph, N: int, mass: float):
     # Create some particles
     xv = np.linspace(0, 2, N)
@@ -31,13 +33,13 @@ def create_particles(wcsph, N: int, mass: float):
         particles.append(Particle('fluid', x[i], y[i], mass))
     
     r0 = 1 / N # Distance between boundary particles.
-    rho_b = 1008. # Density of the boundary [kg/m^3]
-    mass_b = mass * 2 # Mass of the boundary [kg]
+    rho_b = 1000. # Density of the boundary [kg/m^3]
+    mass_b = mass * 1.5 # Mass of the boundary [kg]
 
     # Maximum and minimum values of boundaries
-    x_min = -0.5
+    x_min = -1.0
     x_max = 10.1
-    y_min = -0.5
+    y_min = -1.0
     y_max = 5
     
     # Bottom & Top
@@ -49,7 +51,6 @@ def create_particles(wcsph, N: int, mass: float):
         particles.append(Particle('boundary', xv[i] - r0 / 2, yv[i] - r0, mass_b, rho_b))
         particles.append(Particle('boundary', xv[i], yv[i] - 2 * r0, mass_b, rho_b))
         particles.append(Particle('boundary', xv[i] - r0 / 2, yv[i] - 3 * r0, mass_b, rho_b))
-        #particles.append(Particle('boundary', xv[i], yv2[i] + r0, rho_b))
 
     # Left & Right
     yv3 = np.arange(y_min, y_max, r0)    
@@ -81,10 +82,11 @@ if __name__ == '__main__':
     wcsph = WCSPH(height=2.0)
 
     # Generate some particles
-    N = int(input('Number of particles (has to be a rootable number)?\n'))
+    #N = int(input('Number of particles (has to be a rootable number)?\n'))
+    N = 10
     mass = 2 * 2 * wcsph.rho0 / (N ** 2) # Per particle
     particles = create_particles(wcsph, N, mass)
-
+    mm = np.ones(len(particles)) * mass
     fluid_particles = [p for p in particles if p.label == 'fluid']
 
     # Get fluid indices
@@ -97,12 +99,12 @@ if __name__ == '__main__':
     # Solving properties
     kernel = Gaussian()
     integrater = EulerIntegrater()
-    t_max = 0.5
-    dt = 0.02
+    t_max = 1.5
+    dt = 0.01
     t = np.arange(0, t_max, dt)
     t_n = len(t)
     H = 2 # water column height
-    hdx = 1.3 * np.sqrt(H * 2 * 2 / len(fluid_particles))
+    hdx = 1.3 * np.sqrt(2 * (2 * 2 / (N ** 2)))
     h = np.ones(len(particles)) * hdx
 
     gx = 0.
@@ -143,7 +145,7 @@ if __name__ == '__main__':
     # make colorbar, placing by hand
     cb = ColorBar(cm, 10, 200, label='Density [kg/m^3]')#, [0., 0.5, 1.0])
     pw.scene().addItem(cb)
-    cb.translate(570.0, 90.0)
+    cb.translate(610.0, 90.0)
 
     # Initial points
     sZ = (20*(2/N))
@@ -163,23 +165,28 @@ if __name__ == '__main__':
         
         # Force/Acceleration evaluation loop
         i: int = 0
-        for p in tqdm(particles, desc='Evaluating equations', leave=False):
+        #for p in tqdm(particles, desc='Evaluating equations', leave=False):
+        for p in particles:
             if p.label == 'boundary':
+                i += 1
                 continue
             
+            # Initialize particle, reset acceleration and density.
             wcsph.loop_initialize(p)
             
             # Query neighbours
             r_dist: float  = 3 * h[0] # Goes to zero when q > 3
             near_ind: list = hood.query_ball_point(p.r, r_dist)
-            near_arr: np.array = np.array(near_ind)
+            near_ind.remove(i) # Delete self
+            near_arr: np.array = np.array(np.sort(near_ind))
             
             # Skip if got no neighbours
             # Keep same properties, no acceleration.
             if len(near_arr) == 0:
+                i += 1
                 continue
             
-            # Calculate some general properties
+            # Calculate some re-usable properties
             xij: np.array = r[near_arr] - p.r
             rij: np.array = dist[i, near_arr]
             vij: np.array = v[near_arr, :, t_step] - p.v
@@ -187,10 +194,16 @@ if __name__ == '__main__':
             
             # Evaluate the equations
             wcsph.TaitEOS(p)
-            wcsph.Continuity(mass, p, xij, rij, dwij, vij)
-            wcsph.Momentum(mass, p, c[near_arr, t_step], u[near_arr, t_step], dwij)
+            wcsph.Continuity(mass, p, dwij, vij, len(near_arr))
+
+            # Should be no need to re-set it, but whatever.
+            # Fucking numpy.
+            p.a = wcsph.Momentum(mass, p, c[near_arr, t_step], u[near_arr, t_step], dwij)
+
+            # Add gravity
             wcsph.Gravity(p, gx, gy)
             
+            # Next Particle
             i += 1
         
         # Integration loop
@@ -211,20 +224,12 @@ if __name__ == '__main__':
         # Update and export plot
         update_frame(t_step + 1)
         export(t_step + 1)
-            
-    # Export
-    fluid_ind = []
-    solid_ind = []
-    i: int = 0
-    for p in particles:
-        if p.label == 'fluid':
-            fluid_ind.append(i)
-        else:
-            solid_ind.append(i)
-        i += 1
 
-    # TODO: Write export to mp4
-    os.system(f'ffmpeg -r 5 -i "{tempdir.name}/export_%06d.png" -c:v libx264 -vf fps=10 -pix_fmt yuv420p "{sys.path[0]}/export.mp4"')
+    # Export to mp4
+    fps = 4 # Frames per second
+    subprocess.run(f'ffmpeg -hide_banner -loglevel panic -y -r {fps} -i "{tempdir.name}/export_%06d.png" -c:v libx264 -vf fps=10 -pix_fmt yuv420p "{sys.path[0]}/export.mp4"')
+    print('Export complete!')
+    print(f'Exported to "{sys.path[0]}/export.mp4"')
 
-    # TODO: Cleanup export dir
+    # Cleanup export dir
     tempdir.cleanup()
