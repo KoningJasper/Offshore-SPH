@@ -24,8 +24,9 @@ class WCSPH:
         self.gamma = gamma
         self.rho0 = rho0
         self.H = height
-        self.co = 10.0 * np.sqrt(2 * 9.81 * height)
-        self.B = self.co * self.co * self.rho0 / self.gamma
+        g = 9.81
+        self.co = np.sqrt(200 * g * self.H)
+        self.B = 200 * g * self.H / (self.rho0 * self.gamma)
 
     def inital_condition(self, p: Particle) -> None:
         self.height_density(p)
@@ -34,7 +35,8 @@ class WCSPH:
     def height_density(self, p: Particle) -> None:
         """ Sets the density of particle based on height (y) of particle """
         y = p.r[1]
-        p.rho = p.rho * (1 + (p.rho * 9.81 * (self.H - y)) / self.B) ** (1/self.gamma)
+        frac  = self.rho0 * 9.81 * (self.H - y) / self.B
+        p.rho = self.rho0 * (1 + frac) ** (1 / self.gamma)
 
     @classmethod
     def loop_initialize(self, p: Particle):
@@ -56,7 +58,7 @@ class WCSPH:
             # DO NOT USE +=
             # THIS DOES NOT WORK
             # IT HAS TAKEN YEARS OF MY LIFE.
-            p.a = p.a + mass * pt * dwij[i, :]
+            p.a = p.a - mass * pt * dwij[i, :]
         return p.a
         # pii: np.array = np.divide(pressure, rho * rho) # Others
         # pjj: float = p.p / (p.rho * p.rho) # Self
@@ -79,12 +81,15 @@ class WCSPH:
         for i in range(numParticles):
             vdotw: float = np.dot(vij[i, :], dwij[i, :])
             pi.drho = pi.drho + mass * vdotw
+        return pi.drho
         # vdotw = np.diag(np.dot(vij, np.transpose(dwij)))
         # pi.drho = pi.drho + np.sum(mass * vdotw)
 
     @classmethod
     def Gravity(self, p: Particle, gx: float, gy: float) -> None:
         p.a = p.a + np.array([gx, gy])
+        return p.a
 
     def TaitEOS(self, pi: Particle) -> None:
         pi.p = self.B * ((pi.rho / self.rho0) ** self.gamma - 1)
+        return pi.p

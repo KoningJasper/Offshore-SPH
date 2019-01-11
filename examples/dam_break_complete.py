@@ -37,9 +37,9 @@ def create_particles(wcsph, N: int, mass: float):
     mass_b = mass * 1.5 # Mass of the boundary [kg]
 
     # Maximum and minimum values of boundaries
-    x_min = -1.0
+    x_min = -0.2
     x_max = 10.1
-    y_min = -1.0
+    y_min = -0.2
     y_max = 5
     
     # Bottom & Top
@@ -100,6 +100,7 @@ if __name__ == '__main__':
     kernel = Gaussian()
     integrater = EulerIntegrater()
     t_max = 1.5
+    #dt = 4.52 * 10 ** -4
     dt = 0.01
     t = np.arange(0, t_max, dt)
     t_n = len(t)
@@ -120,6 +121,8 @@ if __name__ == '__main__':
     c = np.zeros([len(particles), t_n]) # Pressure (p)
     u = np.zeros([len(particles), t_n]) # Density (rho)
     v = np.zeros([len(particles), 2, t_n]) # Velocity both x and y
+    a = np.zeros([len(particles), 2, t_n]) # Acceleration both x and y
+    drho = np.zeros([len(particles), t_n]) # Density (rho)
 
     # Initialization
     x[:, 0] = [p.r[0] for p in particles]
@@ -131,10 +134,15 @@ if __name__ == '__main__':
     # use less ink
     pg.setConfigOption('background', 'w')
     pg.setConfigOption('foreground', 'k')
+    pg.setConfigOptions(antialias=True)
 
-    pw = pg.plot(title='Dam break (2D)', labels={'left': 'Y [m]', 'bottom': 'X [m]'})
+    # Plot
+    pw = pg.plot(title='Dam break (2D)', labels={'left': 'Y [m]', 'bottom': 'X [m]', 'top': 'Dam Break (2D)'})
     pw.setXRange(-1, 11)
     pw.setYRange(-1, 5)
+
+    # Text
+    #pw.TextItem(f't = 0.000 s')
 
     # make colormap
     # TODO: Auto generate these steps
@@ -149,7 +157,7 @@ if __name__ == '__main__':
 
     # Initial points
     sZ = (20*(2/N))
-    pl = pw.plot(x[:, 0], y[:, 0], pen=None, symbol='o', symbolBrush=cm.map(u[:, 0], 'qcolor'), symbolSize=sZ)
+    pl = pw.plot(x[:, 0], y[:, 0], pen=None, symbol='o', symbolBrush=cm.map(u[:, 0], 'qcolor'), symbolPen=None, symbolSize=sZ)
 
     # Frame 0 export.
     tempdir = tempfile.TemporaryDirectory()
@@ -180,6 +188,13 @@ if __name__ == '__main__':
             near_ind.remove(i) # Delete self
             near_arr: np.array = np.array(np.sort(near_ind))
             
+            # Get near fluids
+            near_fluid_ind = []
+            for ind in range(len(near_arr)):
+                if particles[near_arr[ind]].label == 'fluid':
+                    near_fluid_ind.append(ind)
+            near_fluid_arr = np.array(near_fluid_ind)
+
             # Skip if got no neighbours
             # Keep same properties, no acceleration.
             if len(near_arr) == 0:
@@ -187,22 +202,31 @@ if __name__ == '__main__':
                 continue
             
             # Calculate some re-usable properties
-            xij: np.array = r[near_arr] - p.r
-            rij: np.array = dist[i, near_arr]
-            vij: np.array = v[near_arr, :, t_step] - p.v
+            xij: np.array = p.r - r[near_arr]
+            rij: np.array = np.power(dist[i, near_arr], 2)
+            vij: np.array = p.v - v[near_arr, :, t_step]
+            wij: np.array = kernel.evaluate(xij, rij, h[near_arr])
             dwij: np.array = kernel.gradient(xij, rij, h[near_arr])
             
             # Evaluate the equations
-            wcsph.TaitEOS(p)
-            wcsph.Continuity(mass, p, dwij, vij, len(near_arr))
+            p.p = wcsph.TaitEOS(p)
+
+            # Perform continuity if other particles are close.
+            if len(near_fluid_arr) > 0:
+                p.drho = wcsph.Continuity(mass, p, dwij[near_fluid_arr], vij[near_fluid_arr], len(near_fluid_arr))
 
             # Should be no need to re-set it, but whatever.
             # Fucking numpy.
             p.a = wcsph.Momentum(mass, p, c[near_arr, t_step], u[near_arr, t_step], dwij)
 
             # Add gravity
-            wcsph.Gravity(p, gx, gy)
-            
+            p.a = wcsph.Gravity(p, gx, gy)
+
+            # Evaluate XSPH
+            vji: np.array = v[near_arr, :, t_step] - p.v
+            rho_ij: np.array = (p.rho + u[near_arr, t_step]) / 2
+            p.vx = 0.5 * np.sum(np.divide(mass * vji, rho_ij.reshape(len(near_arr), 1)) * wij.reshape(len(near_arr), 1), axis=0)
+
             # Next Particle
             i += 1
         
@@ -210,14 +234,20 @@ if __name__ == '__main__':
         i: int = 0
         for p in particles:
             # Integrate the thingies
-            integrater.integrate(dt, p)
+            integrater.integrate(dt, p, True)
             
+            # Set limit density.
+            if p.rho < wcsph.rho0:
+                p.rho = wcsph.rho0
+
             # Put into giant-matrix
             x[i, t_step + 1] = p.r[0]
             y[i, t_step + 1] = p.r[1]
             c[i, t_step + 1] = p.p
             u[i, t_step + 1] = p.rho
             v[i, :, t_step + 1] = p.v
+            a[i, :, t_step + 1] = p.a
+            drho[i, t_step + 1] = p.drho
             
             i += 1
 
@@ -226,10 +256,14 @@ if __name__ == '__main__':
         export(t_step + 1)
 
     # Export to mp4
-    fps = 4 # Frames per second
+    fps = 6 # Frames per second
     subprocess.run(f'ffmpeg -hide_banner -loglevel panic -y -r {fps} -i "{tempdir.name}/export_%06d.png" -c:v libx264 -vf fps=10 -pix_fmt yuv420p "{sys.path[0]}/export.mp4"')
     print('Export complete!')
-    print(f'Exported to "{sys.path[0]}/export.mp4"')
+    print(f'Exported to "{sys.path[0]}/export.mp4".')
 
     # Cleanup export dir
     tempdir.cleanup()
+
+    # Export compressed numpy-arrays
+    np.savez_compressed(f'{sys.path[0]}/export', x=x, y=y, c=c, u=u, v=v, a=a, drho=drho)
+    print(f'Exported arrays to: "{sys.path[0]}/export.npz".')

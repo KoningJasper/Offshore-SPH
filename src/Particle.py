@@ -14,6 +14,9 @@ class Particle:
     """ Current velocity of the particle """
     v: np.array = np.zeros(2)
 
+    """ XSPH correction velocity of particle. """
+    vx: np.array = np.zeros(2)
+
     """ Acceleration of the particle. """
     a: np.array = np.zeros(2)
 
