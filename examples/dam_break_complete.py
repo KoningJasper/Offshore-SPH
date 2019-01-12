@@ -22,8 +22,8 @@ from Momentum import MomentumEquation
 
 def create_particles(wcsph, N: int, mass: float):
     # Create some particles
-    xv = np.linspace(0, 2, N)
-    yv = np.linspace(0, 2, N)
+    xv = np.linspace(0, 25, N)
+    yv = np.linspace(0, 25, N)
     x, y = np.meshgrid(xv, yv, indexing='ij')
     x = x.ravel()
     y = y.ravel()
@@ -37,10 +37,10 @@ def create_particles(wcsph, N: int, mass: float):
     mass_b = mass * 1.5 # Mass of the boundary [kg]
 
     # Maximum and minimum values of boundaries
-    x_min = -0.2
-    x_max = 10.1
-    y_min = -0.2
-    y_max = 5
+    x_min = -0.5
+    x_max = 80
+    y_min = -0.5
+    y_max = 40
     
     # Bottom & Top
     xv = np.arange(x_min, x_max, r0)
@@ -83,8 +83,8 @@ if __name__ == '__main__':
 
     # Generate some particles
     #N = int(input('Number of particles (has to be a rootable number)?\n'))
-    N = 10
-    mass = 2 * 2 * wcsph.rho0 / (N ** 2) # Per particle
+    N = 20
+    mass = 25 * 25 * wcsph.rho0 / (N ** 2) # Per particle
     particles = create_particles(wcsph, N, mass)
     mm = np.ones(len(particles)) * mass
     fluid_particles = [p for p in particles if p.label == 'fluid']
@@ -104,9 +104,7 @@ if __name__ == '__main__':
     dt = 0.01
     t = np.arange(0, t_max, dt)
     t_n = len(t)
-    H = 2 # water column height
-    hdx = 1.3 * np.sqrt(2 * (2 * 2 / (N ** 2)))
-    h = np.ones(len(particles)) * hdx
+    H = 25 # water column height
 
     gx = 0.
     gy = -9.81
@@ -163,7 +161,11 @@ if __name__ == '__main__':
     tempdir = tempfile.TemporaryDirectory()
     print(f'Exporting frames to directory: {tempdir.name}')
     export(0)
+    
+    # hdx = 1.3 * np.sqrt(2 * (2 * 2 / (N ** 2)))
+    # h = np.ones(len(particles)) * hdx
 
+    # Loopy-loop
     i: int = 0
     for t_step in tqdm(range(t_n - 1), desc='Time-stepping'):
         # Distance and neighbourhood
@@ -171,6 +173,11 @@ if __name__ == '__main__':
         dist = scipy.spatial.distance.cdist(r, r, 'euclidean')
         hood = scipy.spatial.cKDTree(r)
         
+        # Calculate H
+        # J.J. Monaghan (2002), p. 1722
+        d = 2
+        h = 1.3 * np.power(mass / u[:, t_step], 1 / d)
+
         # Force/Acceleration evaluation loop
         i: int = 0
         #for p in tqdm(particles, desc='Evaluating equations', leave=False):
@@ -183,7 +190,7 @@ if __name__ == '__main__':
             wcsph.loop_initialize(p)
             
             # Query neighbours
-            r_dist: float  = 3 * h[0] # Goes to zero when q > 3
+            r_dist: float  = 3 * np.max(h) # Goes to zero when q > 3
             near_ind: list = hood.query_ball_point(p.r, r_dist)
             near_ind.remove(i) # Delete self
             near_arr: np.array = np.array(np.sort(near_ind))
@@ -203,7 +210,7 @@ if __name__ == '__main__':
             
             # Calculate some re-usable properties
             xij: np.array = p.r - r[near_arr]
-            rij: np.array = np.power(dist[i, near_arr], 2)
+            rij: np.array = dist[i, near_arr]
             vij: np.array = p.v - v[near_arr, :, t_step]
             wij: np.array = kernel.evaluate(xij, rij, h[near_arr])
             dwij: np.array = kernel.gradient(xij, rij, h[near_arr])

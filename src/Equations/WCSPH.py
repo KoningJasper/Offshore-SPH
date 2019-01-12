@@ -24,9 +24,12 @@ class WCSPH:
         self.gamma = gamma
         self.rho0 = rho0
         self.H = height
+
+        # Monaghan (2002) p. 1746
         g = 9.81
-        self.co = np.sqrt(200 * g * self.H)
-        self.B = 200 * g * self.H / (self.rho0 * self.gamma)
+        v = np.sqrt(2 * g * self.H)
+        self.B = 100 * self.rho0 * v ** 2 / self.gamma
+        self.co = self.gamma * self.B / self.rho0
 
     def inital_condition(self, p: Particle) -> None:
         self.height_density(p)

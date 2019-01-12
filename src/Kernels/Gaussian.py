@@ -21,7 +21,7 @@ class Gaussian(Kernel):
 
     def evaluate(self, x: np.array, r: np.array, h: np.array) -> np.array:
         # Normalize distance
-        q: np.array = np.divide(r, np.power(h, 2))
+        q: np.array = np.divide(r, h)
 
         # Calculate alpha complete
         alpha_c: np.array = self.alpha / np.power(h, 2)
@@ -37,7 +37,7 @@ class Gaussian(Kernel):
     def derivative(self, r: np.array, h: np.array) -> np.array:
         """ Computes the derivative of the gradient for all the points. """
         # Normalize distance
-        q: np.array = np.divide(r, np.power(h, 2))
+        q: np.array = np.divide(r, h)
 
         # Calculate alpha complete
         alpha_c: np.array = self.alpha / np.power(h, 2)
