@@ -14,7 +14,7 @@ class ColorBar(pg.GraphicsObject):
         stops = (stops - stops.min())/stops.ptp()
         if ticks is None:
             ticks = np.r_[0.0:1.0:5j, 1.0] * spp + smn
-        tick_labels = tick_labels or ["%0.2g" % (t,) for t in ticks]
+        tick_labels = tick_labels or ["%0.2f" % (t,) for t in ticks]
 
         # setup picture
         self.pic = pg.QtGui.QPicture()
