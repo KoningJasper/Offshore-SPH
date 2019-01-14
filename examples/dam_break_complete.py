@@ -32,14 +32,14 @@ def create_particles(wcsph, N: int, mass: float):
     for i in range(len(x)):
         particles.append(Particle('fluid', x[i], y[i], mass))
     
-    r0 = 1 / N # Distance between boundary particles.
+    r0 = 25 / N / 2 # Distance between boundary particles.
     rho_b = 1000. # Density of the boundary [kg/m^3]
     mass_b = mass * 1.5 # Mass of the boundary [kg]
 
     # Maximum and minimum values of boundaries
-    x_min = -0.5
+    x_min = -3
     x_max = 80
-    y_min = -0.5
+    y_min = -3
     y_max = 40
     
     # Bottom & Top
@@ -49,8 +49,8 @@ def create_particles(wcsph, N: int, mass: float):
     for i in range(len(xv)):
         particles.append(Particle('boundary', xv[i], yv[i], mass_b, rho_b))
         particles.append(Particle('boundary', xv[i] - r0 / 2, yv[i] - r0, mass_b, rho_b))
-        particles.append(Particle('boundary', xv[i], yv[i] - 2 * r0, mass_b, rho_b))
-        particles.append(Particle('boundary', xv[i] - r0 / 2, yv[i] - 3 * r0, mass_b, rho_b))
+        # particles.append(Particle('boundary', xv[i], yv[i] - 2 * r0, mass_b, rho_b))
+        # particles.append(Particle('boundary', xv[i] - r0 / 2, yv[i] - 3 * r0, mass_b, rho_b))
 
     # Left & Right
     yv3 = np.arange(y_min, y_max, r0)    
@@ -59,8 +59,8 @@ def create_particles(wcsph, N: int, mass: float):
     for i in range(len(yv3)):
         particles.append(Particle('boundary', xv2[i], yv3[i], mass_b, rho_b))
         particles.append(Particle('boundary', xv2[i] - r0, yv3[i] - r0 / 2, mass_b, rho_b))
-        particles.append(Particle('boundary', xv3[i], yv3[i], mass_b, rho_b))
-        particles.append(Particle('boundary', xv3[i] + r0, yv3[i] - r0 / 2, mass_b, rho_b))
+        # particles.append(Particle('boundary', xv3[i], yv3[i], mass_b, rho_b))
+        # particles.append(Particle('boundary', xv3[i] + r0, yv3[i] - r0 / 2, mass_b, rho_b))
         
     return particles
 
@@ -74,16 +74,16 @@ def export(frame: int):
     exporter.export(f'{tempdir.name}/export_{frame_str}.png')
 
 def update_frame(frame: int) -> None:
-    pl.setData(x=x[:, frame], y=y[:, frame], symbolBrush=cm.map(u[:, frame], 'qcolor'), symbolSize=sZ)
+    pl.setData(x=x[:, frame], y=y[:, frame], symbolBrush=cm.map(c[:, frame], 'qcolor'), symbolSize=sZ)
 
 if __name__ == '__main__':
 
     # WCSPH method
-    wcsph = WCSPH(height=2.0)
+    wcsph = WCSPH(height=25.0)
 
     # Generate some particles
     #N = int(input('Number of particles (has to be a rootable number)?\n'))
-    N = 20
+    N = 10
     mass = 25 * 25 * wcsph.rho0 / (N ** 2) # Per particle
     particles = create_particles(wcsph, N, mass)
     mm = np.ones(len(particles)) * mass
@@ -99,15 +99,20 @@ if __name__ == '__main__':
     # Solving properties
     kernel = Gaussian()
     integrater = EulerIntegrater()
-    t_max = 1.5
+    t_max = 5.0
     #dt = 4.52 * 10 ** -4
     dt = 0.01
     t = np.arange(0, t_max, dt)
     t_n = len(t)
     H = 25 # water column height
 
+    # Gravity
     gx = 0.
     gy = -9.81
+
+    # WCSPH parameters
+    alpha = 0.5
+    beta = 0.0
 
     # Initialize the loop
     for p in particles:
@@ -136,26 +141,26 @@ if __name__ == '__main__':
 
     # Plot
     pw = pg.plot(title='Dam break (2D)', labels={'left': 'Y [m]', 'bottom': 'X [m]', 'top': 'Dam Break (2D)'})
-    pw.setXRange(-1, 11)
-    pw.setYRange(-1, 5)
+    pw.setXRange(-3, 81)
+    pw.setYRange(-3, 41)
 
     # Text
     #pw.TextItem(f't = 0.000 s')
 
     # make colormap
     # TODO: Auto generate these steps
-    stops = np.r_[0.25, 0.5, 0.75, 1.0] * (max(u[fluid_ind, 0]) - wcsph.rho0) + wcsph.rho0
+    stops = np.round(np.r_[0.25, 0.5, 0.75, 1.0] * (max(c[fluid_ind, 0])) / 1000, 0)
     colors = np.array([[0, 0, 1, 0.7], [0, 1, 0, 0.2], [0, 0, 0, 0.8], [1, 0, 0, 1.0]])
     cm = pg.ColorMap(stops, colors)
     
     # make colorbar, placing by hand
-    cb = ColorBar(cm, 10, 200, label='Density [kg/m^3]')#, [0., 0.5, 1.0])
+    cb = ColorBar(cm, 10, 200, label='Pressure [kPa]')#, [0., 0.5, 1.0])
     pw.scene().addItem(cb)
     cb.translate(610.0, 90.0)
 
     # Initial points
     sZ = (20*(2/N))
-    pl = pw.plot(x[:, 0], y[:, 0], pen=None, symbol='o', symbolBrush=cm.map(u[:, 0], 'qcolor'), symbolPen=None, symbolSize=sZ)
+    pl = pw.plot(x[:, 0], y[:, 0], pen=None, symbol='o', symbolBrush=cm.map(c[:, 0] / 1000, 'qcolor'), symbolPen=None, symbolSize=sZ)
 
     # Frame 0 export.
     tempdir = tempfile.TemporaryDirectory()
@@ -181,58 +186,77 @@ if __name__ == '__main__':
         # Force/Acceleration evaluation loop
         i: int = 0
         #for p in tqdm(particles, desc='Evaluating equations', leave=False):
-        for p in particles:
-            if p.label == 'boundary':
-                i += 1
-                continue
-            
+        for p in particles:          
             # Initialize particle, reset acceleration and density.
             wcsph.loop_initialize(p)
             
+            # Run EOS
+            p.p = wcsph.TaitEOS(p)
+
             # Query neighbours
             r_dist: float  = 3 * np.max(h) # Goes to zero when q > 3
             near_ind: list = hood.query_ball_point(p.r, r_dist)
             near_ind.remove(i) # Delete self
             near_arr: np.array = np.array(np.sort(near_ind))
-            
-            # Get near fluids
-            near_fluid_ind = []
-            for ind in range(len(near_arr)):
-                if particles[near_arr[ind]].label == 'fluid':
-                    near_fluid_ind.append(ind)
-            near_fluid_arr = np.array(near_fluid_ind)
 
             # Skip if got no neighbours
             # Keep same properties, no acceleration.
             if len(near_arr) == 0:
                 i += 1
                 continue
-            
-            # Calculate some re-usable properties
-            xij: np.array = p.r - r[near_arr]
-            rij: np.array = dist[i, near_arr]
-            vij: np.array = p.v - v[near_arr, :, t_step]
-            wij: np.array = kernel.evaluate(xij, rij, h[near_arr])
-            dwij: np.array = kernel.gradient(xij, rij, h[near_arr])
-            
-            # Evaluate the equations
-            p.p = wcsph.TaitEOS(p)
 
-            # Perform continuity if other particles are close.
-            if len(near_fluid_arr) > 0:
-                p.drho = wcsph.Continuity(mass, p, dwij[near_fluid_arr], vij[near_fluid_arr], len(near_fluid_arr))
+            # Set zero variables
+            _au = 0.0; _au_d = 0.0; _av = 0.0; _av_d = 0.0
+            _arho = 0.0; _xsphx = 0.0; _xsphy = 0.0
 
-            # Should be no need to re-set it, but whatever.
-            # Fucking numpy.
-            p.a = wcsph.Momentum(mass, p, c[near_arr, t_step], u[near_arr, t_step], dwij)
+            # Evaluate neighbours
+            for nbr in near_arr:
+                xij = p.r - r[nbr, :]
+                rij = dist[i, nbr]
+                vij = p.v - v[nbr, :, t_step]
+                
+                hij = 0.5 * (h[i] + h[nbr])
+                rhoij = 0.5 * (p.rho + u[nbr, t_step])
+                cij = wcsph.co
 
-            # Add gravity
-            p.a = wcsph.Gravity(p, gx, gy)
+                dot = np.dot(vij, xij)
 
-            # Evaluate XSPH
-            vji: np.array = v[near_arr, :, t_step] - p.v
-            rho_ij: np.array = (p.rho + u[near_arr, t_step]) / 2
-            p.vx = 0.5 * np.sum(np.divide(mass * vji, rho_ij.reshape(len(near_arr), 1)) * wij.reshape(len(near_arr), 1), axis=0)
+                piij = 0.0
+                if dot < 0:
+                    muij = hij * dot / (rij * rij + 0.01 * hij * hij)
+                    piij = muij * (beta * muij - alpha * cij)
+                    piij = piij / rhoij
+                
+                # Gradient calculations
+                # Has to be in numpy arrays, because should do everything at ones; ideally.
+                wij = kernel.evaluate(np.array([xij]), np.array([rij]), np.array([hij]))[0]
+                dwij = kernel.gradient(np.array([xij]), np.array([rij]), np.array([hij]))[0]
+
+                vijdotwij = np.dot(vij, dwij)
+                tmp = p.p / (p.rho * p.rho) + c[nbr, t_step] / (u[nbr, t_step] * u[nbr, t_step])
+
+                # Continuity
+                _arho = _arho + mass * vijdotwij
+                
+                # Gradient and diffusion
+                _au += - mass * tmp * dwij[0]
+                _av += - mass * tmp * dwij[1]
+
+                _au_d += - mass * piij * dwij[0]
+                _av_d += - mass * piij * dwij[1]
+
+                # XSPH
+                _xsphtmp = mass / rhoij * wij
+
+                _xsphx += _xsphtmp * vij[0]
+                _xsphy += _xsphtmp * vij[1]
+
+            # Store the new properties
+            if p.label == 'fluid':
+                p.a = np.array([_au + _au_d + gx, _av + _av_d + gy])
+                p.v[0] = p.v[0] - _xsphx
+                p.v[1] = p.v[1] - _xsphy
+            p.drho = _arho
 
             # Next Particle
             i += 1
@@ -241,7 +265,7 @@ if __name__ == '__main__':
         i: int = 0
         for p in particles:
             # Integrate the thingies
-            integrater.integrate(dt, p, True)
+            integrater.integrate(dt, p, False)
             
             # Set limit density.
             if p.rho < wcsph.rho0:
