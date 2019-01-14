@@ -83,7 +83,7 @@ if __name__ == '__main__':
 
     # Generate some particles
     #N = int(input('Number of particles (has to be a rootable number)?\n'))
-    N = 10
+    N = 50
     mass = 25 * 25 * wcsph.rho0 / (N ** 2) # Per particle
     particles = create_particles(wcsph, N, mass)
     mm = np.ones(len(particles)) * mass
@@ -99,9 +99,9 @@ if __name__ == '__main__':
     # Solving properties
     kernel = Gaussian()
     integrater = EulerIntegrater()
-    t_max = 5.0
+    t_max = 3.0
     #dt = 4.52 * 10 ** -4
-    dt = 0.01
+    dt = 1e-4
     t = np.arange(0, t_max, dt)
     t_n = len(t)
     H = 25 # water column height
@@ -159,7 +159,7 @@ if __name__ == '__main__':
     cb.translate(610.0, 90.0)
 
     # Initial points
-    sZ = (20*(2/N))
+    sZ = (20 * (2 / N))
     pl = pw.plot(x[:, 0], y[:, 0], pen=None, symbol='o', symbolBrush=cm.map(c[:, 0] / 1000, 'qcolor'), symbolPen=None, symbolSize=sZ)
 
     # Frame 0 export.
@@ -185,8 +185,7 @@ if __name__ == '__main__':
 
         # Force/Acceleration evaluation loop
         i: int = 0
-        #for p in tqdm(particles, desc='Evaluating equations', leave=False):
-        for p in particles:          
+        for p in tqdm(particles, desc='Particle loop', leave=False):
             # Initialize particle, reset acceleration and density.
             wcsph.loop_initialize(p)
             
@@ -195,7 +194,7 @@ if __name__ == '__main__':
 
             # Query neighbours
             r_dist: float  = 3 * np.max(h) # Goes to zero when q > 3
-            near_ind: list = hood.query_ball_point(p.r, r_dist)
+            near_ind: list = hood.query_ball_point(p.r, r_dist, n_jobs=-1) # Find near indices, n_jobs is for parallel processing.
             near_ind.remove(i) # Delete self
             near_arr: np.array = np.array(np.sort(near_ind))
 
@@ -210,46 +209,51 @@ if __name__ == '__main__':
             _arho = 0.0; _xsphx = 0.0; _xsphy = 0.0
 
             # Evaluate neighbours
+            # TODO: Convert to np-array operations.
             for nbr in near_arr:
+                # Calculate vectors
                 xij = p.r - r[nbr, :]
                 rij = dist[i, nbr]
                 vij = p.v - v[nbr, :, t_step]
                 
-                hij = 0.5 * (h[i] + h[nbr])
+                # Calculated averaged properties
+                hij   = 0.5 * (h[i] + h[nbr])
                 rhoij = 0.5 * (p.rho + u[nbr, t_step])
-                cij = wcsph.co
+                cij   = wcsph.co # This is a constant (currently).
 
-                dot = np.dot(vij, xij)
-
-                piij = 0.0
-                if dot < 0:
-                    muij = hij * dot / (rij * rij + 0.01 * hij * hij)
-                    piij = muij * (beta * muij - alpha * cij)
-                    piij = piij / rhoij
-                
                 # Gradient calculations
                 # Has to be in numpy arrays, because should do everything at ones; ideally.
                 wij = kernel.evaluate(np.array([xij]), np.array([rij]), np.array([hij]))[0]
                 dwij = kernel.gradient(np.array([xij]), np.array([rij]), np.array([hij]))[0]
 
-                vijdotwij = np.dot(vij, dwij)
-                tmp = p.p / (p.rho * p.rho) + c[nbr, t_step] / (u[nbr, t_step] * u[nbr, t_step])
-
                 # Continuity
+                vijdotwij = np.dot(vij, dwij)
                 _arho = _arho + mass * vijdotwij
                 
-                # Gradient and diffusion
-                _au += - mass * tmp * dwij[0]
-                _av += - mass * tmp * dwij[1]
+                # Gradient 
+                if p.label == 'fluid':
+                    tmp = p.p / (p.rho * p.rho) + c[nbr, t_step] / (u[nbr, t_step] * u[nbr, t_step])
+                    _au += - mass * tmp * dwij[0]
+                    _av += - mass * tmp * dwij[1]
 
-                _au_d += - mass * piij * dwij[0]
-                _av_d += - mass * piij * dwij[1]
+                    # Diffusion
+                    dot = np.dot(vij, xij)
+                    piij = 0.0
+                    if dot < 0:
+                        muij = hij * dot / (rij * rij + 0.01 * hij * hij)
+                        piij = muij * (beta * muij - alpha * cij)
+                        piij = piij / rhoij
 
-                # XSPH
-                _xsphtmp = mass / rhoij * wij
+                    _au_d += - mass * piij * dwij[0]
+                    _av_d += - mass * piij * dwij[1]
 
-                _xsphx += _xsphtmp * vij[0]
-                _xsphy += _xsphtmp * vij[1]
+                    # XSPH
+                    _xsphtmp = mass / rhoij * wij
+
+                    _xsphx += _xsphtmp * vij[0]
+                    _xsphy += _xsphtmp * vij[1]
+                # end fluid
+            # end nbrs
 
             # Store the new properties
             if p.label == 'fluid':
