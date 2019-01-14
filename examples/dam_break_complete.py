@@ -7,10 +7,12 @@ import scipy.spatial
 from tqdm import tqdm
 
 # Plotting
-from ColorBar import ColorBar
 import pyqtgraph as pg
-from pyqtgraph.Qt import QtCore
 import pyqtgraph.exporters
+from ColorBar import ColorBar
+from pyqtgraph.Qt import QtCore
+from pyqtgraph.graphicsItems import TextItem
+from pyqtgraph.graphicsItems.GradientEditorItem import Gradients
 
 # Own classes
 from src.Kernels.Gaussian import Gaussian
@@ -75,6 +77,8 @@ def export(frame: int):
 
 def update_frame(frame: int) -> None:
     pl.setData(x=x[:, frame], y=y[:, frame], symbolBrush=cm.map(c[:, frame], 'qcolor'), symbolSize=sZ)
+    time: int = frame * dt
+    txtItem.setText(f't = {time:f} [s]')
 
 if __name__ == '__main__':
 
@@ -83,7 +87,7 @@ if __name__ == '__main__':
 
     # Generate some particles
     #N = int(input('Number of particles (has to be a rootable number)?\n'))
-    N = 50
+    N = 20
     mass = 25 * 25 * wcsph.rho0 / (N ** 2) # Per particle
     particles = create_particles(wcsph, N, mass)
     mm = np.ones(len(particles)) * mass
@@ -99,7 +103,7 @@ if __name__ == '__main__':
     # Solving properties
     kernel = Gaussian()
     integrater = EulerIntegrater()
-    t_max = 3.0
+    t_max = 1.0
     #dt = 4.52 * 10 ** -4
     dt = 1e-4
     t = np.arange(0, t_max, dt)
@@ -145,12 +149,27 @@ if __name__ == '__main__':
     pw.setYRange(-3, 41)
 
     # Text
+    t_step = 0.0
+    txtItem = pg.TextItem(text = f't = 0.00000 [s]')
+    pw.scene().addItem(txtItem)
+    [[xmin, xmax], [ymin, ymax]] = txtItem.getViewBox().viewRange()
+    xrange = xmax - xmin
+    txtItem.translate(350.0 - xrange, 90.0)
+    
     #pw.TextItem(f't = 0.000 s')
 
     # make colormap
     # TODO: Auto generate these steps
-    stops = np.round(np.r_[0.25, 0.5, 0.75, 1.0] * (max(c[fluid_ind, 0])) / 1000, 0)
-    colors = np.array([[0, 0, 1, 0.7], [0, 1, 0, 0.2], [0, 0, 0, 0.8], [1, 0, 0, 1.0]])
+    gradient = 'spectrum'
+    n_stops = 10
+    c_range = np.linspace(0, 1, num=n_stops)
+
+    # Blue to red color spectrum
+    colors = []
+    for cc in c_range:
+        colors.append([cc, 0.0, 1 - cc, 1.0])
+    colors = np.array(colors)
+    stops = np.round(c_range * (np.max(c[fluid_ind, 0])) / 1000, 0)
     cm = pg.ColorMap(stops, colors)
     
     # make colorbar, placing by hand
@@ -159,7 +178,7 @@ if __name__ == '__main__':
     cb.translate(610.0, 90.0)
 
     # Initial points
-    sZ = (20 * (2 / N))
+    sZ = (40 * (2 / N))
     pl = pw.plot(x[:, 0], y[:, 0], pen=None, symbol='o', symbolBrush=cm.map(c[:, 0] / 1000, 'qcolor'), symbolPen=None, symbolSize=sZ)
 
     # Frame 0 export.
@@ -180,12 +199,17 @@ if __name__ == '__main__':
         
         # Calculate H
         # J.J. Monaghan (2002), p. 1722
-        d = 2
-        h = 1.3 * np.power(mass / u[:, t_step], 1 / d)
+        #d = 2
+        #h = 1.3 * np.power(mass / u[:, t_step], 1 / d)
+
+        # Distance of closest particle time 1.3
+        np.fill_diagonal(dist, 9999999999.0) # Fill self-dist with large value.
+        h = 1.3 * np.amin(dist, axis=1)
+        np.fill_diagonal(dist, 0.0)
 
         # Force/Acceleration evaluation loop
         i: int = 0
-        for p in tqdm(particles, desc='Particle loop', leave=False):
+        for p in particles:
             # Initialize particle, reset acceleration and density.
             wcsph.loop_initialize(p)
             
@@ -208,52 +232,51 @@ if __name__ == '__main__':
             _au = 0.0; _au_d = 0.0; _av = 0.0; _av_d = 0.0
             _arho = 0.0; _xsphx = 0.0; _xsphy = 0.0
 
-            # Evaluate neighbours
-            # TODO: Convert to np-array operations.
-            for nbr in near_arr:
-                # Calculate vectors
-                xij = p.r - r[nbr, :]
-                rij = dist[i, nbr]
-                vij = p.v - v[nbr, :, t_step]
-                
-                # Calculated averaged properties
-                hij   = 0.5 * (h[i] + h[nbr])
-                rhoij = 0.5 * (p.rho + u[nbr, t_step])
-                cij   = wcsph.co # This is a constant (currently).
+            # Calc vectors
+            xij: np.array = p.r - r[near_arr, :]
+            rij: np.array = dist[i, near_arr]
+            vij: np.array = p.v - v[near_arr, :, t_step]
 
-                # Gradient calculations
-                # Has to be in numpy arrays, because should do everything at ones; ideally.
-                wij = kernel.evaluate(np.array([xij]), np.array([rij]), np.array([hij]))[0]
-                dwij = kernel.gradient(np.array([xij]), np.array([rij]), np.array([hij]))[0]
+            # Calc averaged properties
+            hij: np.array   = 0.5 * (h[i] + h[near_arr])
+            rhoij: np.array = 0.5 * (p.rho + u[near_arr, t_step])
+            cij: np.array   = np.ones(len(near_arr)) * wcsph.co # This is a constant (currently).
 
-                # Continuity
-                vijdotwij = np.dot(vij, dwij)
-                _arho = _arho + mass * vijdotwij
-                
-                # Gradient 
-                if p.label == 'fluid':
-                    tmp = p.p / (p.rho * p.rho) + c[nbr, t_step] / (u[nbr, t_step] * u[nbr, t_step])
-                    _au += - mass * tmp * dwij[0]
-                    _av += - mass * tmp * dwij[1]
+            # kernel calculations
+            wij = kernel.evaluate(xij, rij, hij)
+            dwij = kernel.gradient(xij, rij, hij)
 
-                    # Diffusion
-                    dot = np.dot(vij, xij)
-                    piij = 0.0
-                    if dot < 0:
-                        muij = hij * dot / (rij * rij + 0.01 * hij * hij)
-                        piij = muij * (beta * muij - alpha * cij)
-                        piij = piij / rhoij
+            # Continuity
+            vijdotwij = np.sum(vij * dwij, axis=1) # row by row dot product
+            _arho = np.sum(mass * vijdotwij, axis=0)
 
-                    _au_d += - mass * piij * dwij[0]
-                    _av_d += - mass * piij * dwij[1]
+            # Gradient 
+            if p.label == 'fluid':
+                tmp = p.p / (p.rho * p.rho) + c[near_arr, t_step] / (u[near_arr, t_step] * u[near_arr, t_step])
+                _au = np.sum(- mass * tmp * dwij[:, 0], axis=0)
+                _av = np.sum(- mass * tmp * dwij[:, 1], axis=0)
 
-                    # XSPH
-                    _xsphtmp = mass / rhoij * wij
+                # Diffusion
+                dot = np.sum(vij * xij, axis=1) # Row by row dot product
+                piij = np.zeros(len(near_arr))
 
-                    _xsphx += _xsphtmp * vij[0]
-                    _xsphy += _xsphtmp * vij[1]
-                # end fluid
-            # end nbrs
+                # Perform diffusion for masked entities
+                mask       = dot < 0
+                if any(mask):
+                    muij       = hij[mask] * dot[mask] / (rij[mask] * rij[mask] + 0.01 * hij[mask] * hij[mask])
+                    muij       = muij
+                    piij[mask] = muij * (beta * muij - alpha * cij[mask])
+                    piij[mask] = piij[mask] / rhoij[mask]
+
+                _au_d = np.sum(- mass * piij * dwij[:, 0])
+                _av_d = np.sum(- mass * piij * dwij[:, 1])
+
+                # XSPH
+                _xsphtmp = mass / rhoij * wij
+
+                _xsphx = np.sum(_xsphtmp * vij[:, 0], axis=0)
+                _xsphy = np.sum(_xsphtmp * vij[:, 1], axis=0)
+            # end fluid
 
             # Store the new properties
             if p.label == 'fluid':
@@ -264,6 +287,7 @@ if __name__ == '__main__':
 
             # Next Particle
             i += 1
+        # end force loop
         
         # Integration loop
         i: int = 0
@@ -291,7 +315,7 @@ if __name__ == '__main__':
         export(t_step + 1)
 
     # Export to mp4
-    fps = 6 # Frames per second
+    fps = np.round(0.5 / dt) # Frames per second
     subprocess.run(f'ffmpeg -hide_banner -loglevel panic -y -r {fps} -i "{tempdir.name}/export_%06d.png" -c:v libx264 -vf fps=10 -pix_fmt yuv420p "{sys.path[0]}/export.mp4"')
     print('Export complete!')
     print(f'Exported to "{sys.path[0]}/export.mp4".')
