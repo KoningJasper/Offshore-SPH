@@ -3,7 +3,6 @@ import sys, os, tempfile, subprocess
 sys.path.insert(1, os.path.join(sys.path[0], '..'))
 
 import numpy as np
-import scipy.spatial
 from tqdm import tqdm
 
 # Plotting
@@ -195,7 +194,7 @@ if __name__ == '__main__':
         # Distance and neighbourhood
         r = np.array([p.r for p in particles])
         dist = scipy.spatial.distance.cdist(r, r, 'euclidean')
-        hood = scipy.spatial.cKDTree(r)
+        # hood = scipy.spatial.cKDTree(r)
         
         # Calculate H
         # J.J. Monaghan (2002), p. 1722
@@ -215,10 +214,9 @@ if __name__ == '__main__':
             p.p = wcsph.TaitEOS(p)
 
             # Query neighbours
-            r_dist: float  = 3 * np.max(h) # Goes to zero when q > 3
-            near_ind: list = hood.query_ball_point(p.r, r_dist, n_jobs=-1) # Find near indices, n_jobs is for parallel processing.
-            near_ind.remove(i) # Delete self
-            near_arr: np.array = np.array(np.sort(near_ind))
+            h_i: np.array = 0.5 * (h[i] + h[:])
+            q_i: np.array = dist[i, :] / (h_i)
+            near_arr: np.array = np.flatnonzero(np.argwhere(q_i <= 3.0)) # Find neighbours and remove self (0).
 
             # Skip if got no neighbours
             # Keep same properties, no acceleration.
@@ -236,7 +234,7 @@ if __name__ == '__main__':
             vij: np.array = p.v - v[near_arr, :, t_step]
 
             # Calc averaged properties
-            hij: np.array   = 0.5 * (h[i] + h[near_arr])
+            hij: np.array   = h_i[near_arr]
             rhoij: np.array = 0.5 * (p.rho + u[near_arr, t_step])
             cij: np.array   = np.ones(len(near_arr)) * wcsph.co # This is a constant (currently).
 
