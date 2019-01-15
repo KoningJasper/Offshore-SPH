@@ -3,6 +3,7 @@ import sys, os, tempfile, subprocess
 sys.path.insert(1, os.path.join(sys.path[0], '..'))
 
 import numpy as np
+import scipy.spatial
 from tqdm import tqdm
 
 # Plotting
@@ -18,8 +19,6 @@ from src.Kernels.Gaussian import Gaussian
 from src.Particle import Particle
 from src.Equations.WCSPH import WCSPH
 from src.Integrators.EulerIntegrater import EulerIntegrater
-
-from Momentum import MomentumEquation
 
 def create_particles(wcsph, N: int, mass: float):
     # Create some particles
