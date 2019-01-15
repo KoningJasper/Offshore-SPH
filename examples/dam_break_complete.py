@@ -79,14 +79,14 @@ def update_frame(frame: int) -> None:
     txtItem.setText(f't = {time:f} [s]')
 
 if __name__ == '__main__':
-
     # WCSPH method
     wcsph = WCSPH(height=25.0)
 
     # Generate some particles
     #N = int(input('Number of particles (has to be a rootable number)?\n'))
-    N = 20
-    mass = 25 * 25 * wcsph.rho0 / (N ** 2) # Per particle
+    N = 10
+    dA = 25 * 25 / N ** 2 # Area per particle. [m^2]
+    mass = dA * wcsph.rho0
     particles = create_particles(wcsph, N, mass)
     mm = np.ones(len(particles)) * mass
     fluid_particles = [p for p in particles if p.label == 'fluid']
@@ -102,7 +102,6 @@ if __name__ == '__main__':
     kernel = Gaussian()
     integrater = EulerIntegrater()
     t_max = 1.0
-    #dt = 4.52 * 10 ** -4
     dt = 5e-3
     t = np.arange(0, t_max, dt)
     t_n = len(t)
@@ -113,8 +112,10 @@ if __name__ == '__main__':
     gy = -9.81
 
     # WCSPH parameters
-    alpha = 0.5
+    # Monaghan 1992
+    alpha = 0.01
     beta = 0.0
+    eta = 0.5
 
     # Initialize the loop
     for p in particles:
@@ -153,22 +154,14 @@ if __name__ == '__main__':
     [[xmin, xmax], [ymin, ymax]] = txtItem.getViewBox().viewRange()
     xrange = xmax - xmin
     txtItem.translate(350.0 - xrange, 90.0)
-    
-    #pw.TextItem(f't = 0.000 s')
 
     # make colormap
-    # TODO: Auto generate these steps
-    gradient = 'spectrum'
-    n_stops = 10
-    c_range = np.linspace(0, 1, num=n_stops)
-
-    # Blue to red color spectrum
+    c_range = np.linspace(0, 1, num=10)
     colors = []
     for cc in c_range:
-        colors.append([cc, 0.0, 1 - cc, 1.0])
-    colors = np.array(colors)
+        colors.append([cc, 0.0, 1 - cc, 1.0]) # Blue to red color spectrum
     stops = np.round(c_range * (np.max(c[fluid_ind, 0])) / 1000, 0)
-    cm = pg.ColorMap(stops, colors)
+    cm = pg.ColorMap(stops, np.array(colors))
     
     # make colorbar, placing by hand
     cb = ColorBar(cm, 10, 200, label='Pressure [kPa]')#, [0., 0.5, 1.0])
@@ -184,24 +177,15 @@ if __name__ == '__main__':
     print(f'Exporting frames to directory: {tempdir.name}')
     export(0)
     
-    # hdx = 1.3 * np.sqrt(2 * (2 * 2 / (N ** 2)))
-    # h = np.ones(len(particles)) * hdx
-
     # Loopy-loop
     i: int = 0
     for t_step in tqdm(range(t_n - 1), desc='Time-stepping'):
         # Distance and neighbourhood
         r = np.array([p.r for p in particles])
         dist = scipy.spatial.distance.cdist(r, r, 'euclidean')
-        # hood = scipy.spatial.cKDTree(r)
-        
-        # Calculate H
-        # J.J. Monaghan (2002), p. 1722
-        # d = 2
-        # h = 1.3 * np.power(mass / u[:, t_step], 1 / d)
 
         # Distance of closest particle time 1.3
-        h = np.ma.masked_values(dist, 0.0, copy=False).min(1)
+        h = 1.3 * np.ma.masked_values(dist, 0.0, copy=False).min(1)
 
         # Force/Acceleration evaluation loop
         i: int = 0
@@ -268,16 +252,15 @@ if __name__ == '__main__':
 
                 # XSPH
                 _xsphtmp = mass / rhoij * wij
-
-                _xsphx = np.sum(_xsphtmp * vij[:, 0], axis=0)
-                _xsphy = np.sum(_xsphtmp * vij[:, 1], axis=0)
+                _xsphx = np.sum(_xsphtmp * -vij[:, 0], axis=0) # -vij = vji
+                _xsphy = np.sum(_xsphtmp * -vij[:, 1], axis=0)
             # end fluid
 
             # Store the new properties
             if p.label == 'fluid':
                 p.a = np.array([_au + _au_d + gx, _av + _av_d + gy])
-                p.v[0] = p.v[0] - _xsphx
-                p.v[1] = p.v[1] - _xsphy
+                p.v[0] = p.v[0] + eta * _xsphx
+                p.v[1] = p.v[1] + eta * _xsphy
             p.drho = _arho
 
             # Next Particle
