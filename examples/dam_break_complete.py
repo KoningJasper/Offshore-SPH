@@ -105,7 +105,7 @@ if __name__ == '__main__':
     integrater = EulerIntegrater()
     t_max = 1.0
     #dt = 4.52 * 10 ** -4
-    dt = 1e-4
+    dt = 5e-3
     t = np.arange(0, t_max, dt)
     t_n = len(t)
     H = 25 # water column height
@@ -199,13 +199,11 @@ if __name__ == '__main__':
         
         # Calculate H
         # J.J. Monaghan (2002), p. 1722
-        #d = 2
-        #h = 1.3 * np.power(mass / u[:, t_step], 1 / d)
+        # d = 2
+        # h = 1.3 * np.power(mass / u[:, t_step], 1 / d)
 
         # Distance of closest particle time 1.3
-        np.fill_diagonal(dist, 9999999999.0) # Fill self-dist with large value.
-        h = 1.3 * np.amin(dist, axis=1)
-        np.fill_diagonal(dist, 0.0)
+        h = np.ma.masked_values(dist, 0.0, copy=False).min(1)
 
         # Force/Acceleration evaluation loop
         i: int = 0
