@@ -54,13 +54,13 @@ class Gaussian(Kernel):
         """ 
         Evaluates the gradient with respect to point x1 and x2 at point x1.
 
-        grad = -2 * alpha * exp(-R^2)
+        grad = -2 * q * alpha * exp(-q^2)
         """
 
         # compute the gradient.
         w_grad = np.zeros(len(r))
 
-        # Treshold value to prevent divide by zero, h should always be bigger than 0.
+        # Treshold value to prevent divide by zero, q should always be bigger than 0.
         mask = r > 1e-12
         w_grad[mask] = self.derivative(r[mask], h[mask]) / (h[mask] * r[mask])
 

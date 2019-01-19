@@ -2,9 +2,15 @@ import unittest
 import math
 import numpy as np
 import scipy.spatial
+
+# Add parent folder to path
+import sys, os
+sys.path.insert(1, os.path.join(sys.path[0], '..'))
+
 from src.Particle import Particle
 from src.Equations.WCSPH import WCSPH
 from src.Kernels.Gaussian import Gaussian
+from PySPH.Momentum import MomentumEquation
 
 
 class test_wcsph(unittest.TestCase):
@@ -31,13 +37,14 @@ class test_wcsph(unittest.TestCase):
         wcsph = WCSPH(height=2.0)
         mass = 1.0
         h = np.ones(2)
-        particles = [Particle('fluid', 0, 0), Particle('fluid', 0.2, 0)]
+        particles = [Particle('fluid', 0, 0, mass), Particle('fluid', 0.2, 0, mass)]
 
         r = np.array([p.r for p in particles])
         dist = scipy.spatial.distance.cdist(r, r, 'euclidean')
 
         # set the initial conditions
         for p in particles:
+            wcsph.loop_initialize(p)
             p.p = 9.81 * 2 * 1000
 
         kernel = Gaussian()
@@ -53,18 +60,26 @@ class test_wcsph(unittest.TestCase):
         # Act
         wcsph.Momentum(mass, particles[0], pressure, rho, dwij)
 
+        # PySPH implementation
+        d_au = [0]
+        d_av = [0]
+        # Self
+        MomentumEquation().loop(0, 0, rho, [], pressure, d_au, d_av, 0, [mass, mass], rho, [], pressure, vij, xij, h, [], [], 0, dwij[0, :], [], 0, 0)
+        # Other
+        MomentumEquation().loop(0, 1, rho, [], pressure, d_au, d_av, 0, [mass, mass], rho, [], pressure, vij, xij, h, [], [], 0, dwij[1, :], [], 0, 0)
+
         # Verify
-        self.assertLess(particles[0].a[0], 0,
-                        msg='Accelerating in the wrong direction.')
-        self.assertAlmostEqual(particles[0].a[0], -4.800288484155583)
-        self.assertAlmostEqual(particles[0].a[1], 0.0)
+        # self.assertLess(particles[0].a[0], 0,
+                        # msg='Accelerating in the wrong direction.')
+        self.assertAlmostEqual(particles[0].a[0], d_au[0])
+        self.assertAlmostEqual(particles[0].a[1], d_av[0])
 
     def test_momentum_many_particles(self):
-        wcsph = WCSPH(height=2)
+        wcsph = WCSPH(height=2.0)
         kernel = Gaussian()
 
         # Create some particles
-        mass = 1.0
+        mass = 1000.0
         xv = np.linspace(0, 2, 10)
         yv = np.linspace(0, 2, 10)
         x, y = np.meshgrid(xv, yv, indexing='ij')
@@ -74,33 +89,65 @@ class test_wcsph(unittest.TestCase):
 
         particles = []
         for i in range(len(x)):
-            particles.append(Particle('fluid', x[i], y[i]))
+            particles.append(Particle('fluid', x[i], y[i], mass))
 
         # Init density
         for p in particles:
             wcsph.inital_condition(p)
 
-        pi = particles[0]
+        # Global properties
+        r = np.array([p.r for p in particles])
+        dist = scipy.spatial.distance.cdist(r, r, 'euclidean')
+        pressure = np.array([p.p for p in particles])
+        rho = np.array([p.rho for p in particles])
+        mm = mass * np.ones(len(particles))
+
+        i: int = 0
+        for pi in particles:
+            pi.a = np.array([0., 0.])
+            xij: np.array = r[:] - pi.r
+            rij: np.array = dist[i, :]
+            dwij: np.array = kernel.gradient(xij, rij, h)
+
+            # Act
+            pi.a = wcsph.Momentum(mass, pi, pressure, rho, dwij)
+
+            # PySPH evaluation.
+            d_au = [0]
+            d_av = [0]
+            for ii in range(len(particles)):
+                MomentumEquation().loop(0, ii, rho, [], pressure, d_au, d_av, 0, mm, rho, [], pressure, [], xij, h, [], [], 0, dwij[ii, :], [], 0, 0)
+
+            # Verify
+            self.assertAlmostEqual(pi.a[0], d_au[0], msg=f'Error in {i}.')
+            self.assertAlmostEqual(pi.a[1], d_av[0], msg=f'Error in {i}.')
+
+            i += 1
+
+    def test_continuity_two_particles(self):
+        # Arange
+        wcsph = WCSPH(height=2.0)
+        mass = 5.0
+        h = np.ones(2) * 0.5
+        particles = [Particle('fluid', 0, 0, mass), Particle('fluid', 0.2, 0, mass)]
+
         r = np.array([p.r for p in particles])
         dist = scipy.spatial.distance.cdist(r, r, 'euclidean')
 
-        xij: np.array = r[:] - pi.r
+        # set the initial conditions
+        for p in particles:
+            p.p = 9.81 * 2 * 1000
+
+        kernel = Gaussian()
+
+        xij: np.array = r[:] - particles[0].r
         rij: np.array = dist[0, :]
+        vij: np.array = np.ones([2, 2])
         dwij: np.array = kernel.gradient(xij, rij, h)
 
-        pressure = np.array([p.p for p in particles])
-        rho = np.array([p.rho for p in particles])
-
         # Act
-        wcsph.Momentum(mass, pi, pressure, rho, dwij)
+        wcsph.Continuity(mass, particles[0], dwij, vij)
 
         # Verify
-        self.assertLess(pi.a[0], 0,
-                        msg='Accelerating in the wrong x-direction.')
-        self.assertLess(pi.a[1], 0,
-                        msg='Accelerating in the wrong y-direction.')
-        self.assertAlmostEqual(pi.a[0], -214.39581666 / 1000 * pi.rho)
-        self.assertAlmostEqual(pi.a[1], -190.99652198 / 1000 * pi.rho)
-
-    def test_continuity_two_particles(self):
-        pass
+        self.assertLess(particles[0].drho, 0, msg='Negative density')
+        self.assertAlmostEqual(particles[0].drho, -8.679865359297883)

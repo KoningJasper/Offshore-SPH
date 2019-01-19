@@ -24,8 +24,12 @@ class WCSPH:
         self.gamma = gamma
         self.rho0 = rho0
         self.H = height
-        self.co = 10.0 * np.sqrt(2 * 9.81 * height)
-        self.B = self.co * self.co * self.rho0 / self.gamma
+
+        # Monaghan (2002) p. 1746
+        g = 9.81
+        v = np.sqrt(2 * g * self.H)
+        self.B = 100 * self.rho0 * v ** 2 / self.gamma
+        self.co = self.gamma * self.B / self.rho0
 
     def inital_condition(self, p: Particle) -> None:
         self.height_density(p)
@@ -34,45 +38,61 @@ class WCSPH:
     def height_density(self, p: Particle) -> None:
         """ Sets the density of particle based on height (y) of particle """
         y = p.r[1]
-        p.rho = p.rho * \
-            (1 + (p.rho * 9.81 * (self.H - y)) / self.B) ** (1/self.gamma)
+        frac  = self.rho0 * 9.81 * (self.H - y) / self.B
+        p.rho = self.rho0 * (1 + frac) ** (1 / self.gamma)
 
     @classmethod
     def loop_initialize(self, p: Particle):
-        """ Initialize loop, resets certain properties """
+        """ Initialize loop, resets acceleration and density change. """
         p.a = np.array([0., 0.])
         p.drho = 0.
 
-    @classmethod
     def Momentum(self, mass: float, p: Particle, pressure: np.array, rho: np.array, dwij: np.array) -> None:
         """
             Monaghan Momentum equation
         """
-        pii: np.array = np.divide(pressure, np.power(rho, 2))
-        pjj: float = p.p / p.rho ** 2
-        tmp: np.array = pii + pjj
+        rj = 1.0 / (p.rho * p.rho)
+        pj = p.p * rj
+        for i in range(len(pressure)):
+            ri = 1.0 / (rho[i] * rho[i])
+            qt = pressure[i] * ri
+            pt = qt + pj
 
-        # Create for multiple dimensions
-        fac: np.array = mass * tmp * p.rho
-        vec = np.zeros([len(pressure), 2])
-        vec[:, 0] = fac
-        vec[:, 1] = fac
+            # DO NOT USE +=
+            # THIS DOES NOT WORK
+            # IT HAS TAKEN YEARS OF MY LIFE.
+            p.a = p.a - mass * pt * dwij[i, :]
+        return p.a
+        # pii: np.array = np.divide(pressure, rho * rho) # Others
+        # pjj: float = p.p / (p.rho * p.rho) # Self
+        # tmp: np.array = pii + pjj # Sum
 
-        # Assign the acceleration
-        p.a += np.sum(np.multiply(vec, dwij), axis=0)
+        # # Create for multiple dimensions
+        # fac: np.array = mass * tmp
+        # vec = np.zeros([len(pressure), 2])
+        # vec[:, 0] = fac
+        # vec[:, 1] = fac
+
+        # # Assign the acceleration
+        # p.a += -1 * np.sum(np.multiply(vec, dwij), axis=0)
 
     @classmethod
-    def Continuity(self, mass: float, pi: Particle, xij: np.array, rij: np.array, dwij: np.array, vij: np.array) -> None:
+    def Continuity(self, mass: float, pi: Particle, dwij: np.array, vij: np.array, numParticles: int) -> None:
         """
             SPH continuity equation
         """
-        vdotw = np.diag(np.dot(vij, np.transpose(dwij)))
-        pi.drho += np.sum(mass * vdotw)
+        for i in range(numParticles):
+            vdotw: float = np.dot(vij[i, :], dwij[i, :])
+            pi.drho = pi.drho + mass * vdotw
+        return pi.drho
+        # vdotw = np.diag(np.dot(vij, np.transpose(dwij)))
+        # pi.drho = pi.drho + np.sum(mass * vdotw)
 
     @classmethod
     def Gravity(self, p: Particle, gx: float, gy: float) -> None:
-        p.a[0] += gx
-        p.a[1] += gy
+        p.a = p.a + np.array([gx, gy])
+        return p.a
 
     def TaitEOS(self, pi: Particle) -> None:
         pi.p = self.B * ((pi.rho / self.rho0) ** self.gamma - 1)
+        return pi.p

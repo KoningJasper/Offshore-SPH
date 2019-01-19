@@ -1,67 +1,102 @@
 import unittest
-from src.Kernels.Gaussian import Gaussian
 import numpy as np
+import scipy.spatial
 
+# Add parent folder to path
+import sys, os
+sys.path.insert(1, os.path.join(sys.path[0], '..'))
+
+from src.Kernels.Gaussian import Gaussian
+
+# PySPH implementation
+from PySPH.Gaussian import Gaussian as pGaussian
 
 class test_kernels_Gaussian(unittest.TestCase):
     """ Tests the Gaussian kernel implementation against known values of the gaussian kernel """
 
-    def test_evaluate(self):
-        # Arrange
+    def createParticles(self, N: int = 10) -> np.array:
+        # Create some particles
+        xv = np.linspace(0, 10, N)
+        yv = np.linspace(0, 10, N)
+        x, y = np.meshgrid(xv, yv, indexing='ij')
+        x = x.ravel().reshape(N ** 2, 1)
+        y = y.ravel().reshape(N ** 2, 1)
+        r = np.hstack((x, y))
+
+        return r
+
+    def test_evaluate_many(self):
         kernel = Gaussian()
-        x = np.array([0., 0.])
-        r = np.array([0.5])
-        h = np.array([1.])
+        pKernel = pGaussian()
+        
+        # Create particles
+        r = self.createParticles()
+        
+        # Calculate distance
+        dist = scipy.spatial.distance.cdist(r, r, 'euclidean')
+        for i in range(len(r)):
+            for hdx in np.arange(0.1, 1, 0.1):
+                xij = r[:] - r[i]
+                rij = dist[i, :]
+                hij = hdx * np.ones(len(r))
 
-        # Act
-        val = kernel.evaluate(x, r, h)[0]
+                # Evaluate gradient
+                k = kernel.evaluate(xij, rij, hij)
 
-        # Assert
-        self.assertAlmostEqual(val, 0.2478999886193059)
+                for ii in range(len(r)):
+                    v = pKernel.kernel(xij[ii, :], rij[ii], hij[ii])
 
-    def test_derivative(self):
-        # Arrange
+                    # Check values
+                    self.assertAlmostEqual(k[ii], v)
+
+    def test_derivative_many(self):
         kernel = Gaussian()
-        r = np.array([0.25])
-        h = np.array([0.5])
+        pKernel = pGaussian()
+        
+        # Create particles
+        r = self.createParticles()
+        
+        # Calculate distance
+        dist = scipy.spatial.distance.cdist(r, r, 'euclidean')
+        for i in range(len(r)):
+            for hdx in np.arange(0.1, 1, 0.1):
+                rij = dist[i, :]
+                hij = hdx * np.ones(len(r))
 
-        # Act
-        val = kernel.derivative(r, h)[0]
+                # Evaluate gradient
+                k = kernel.derivative(rij, hij)
 
-        # Assert
-        self.assertAlmostEqual(val, -0.9915999544772236)
+                for ii in range(len(r)):
+                    v = pKernel.dwdq(rij[ii], hij[ii])
 
-    def test_gradient(self):
-        # Arrange
+                    # Check values
+                    self.assertAlmostEqual(k[ii], v)
+
+    def test_gradient_many(self):
         kernel = Gaussian()
-        x = np.array([1., 1.])
-        r = np.array([0.25])
-        h = np.array([1.3 * 0.25])
+        pKernel = pGaussian()
+        
+        # Create particles
+        r = self.createParticles()
+        
+        # Calculate distance
+        dist = scipy.spatial.distance.cdist(r, r, 'euclidean')
+        for i in range(len(r)):
+            for hdx in np.arange(0.1, 1, 0.1):
+                xij = r[:] - r[i]
+                rij = dist[i, :]
+                hij = hdx * np.ones(len(r))
 
-        # Act
-        grad = kernel.gradient(x, r, h)[0]
+                # Evaluate gradient
+                dwij = kernel.gradient(xij, rij, hij)
 
-        # Assert
-        self.assertAlmostEqual(grad[0], -31.576769410027108)
-        self.assertAlmostEqual(grad[1], -31.576769410027108)
+                for ii in range(len(r)):
+                    grad = [0, 0, 0]
+                    pKernel.gradient(xij[ii, :], rij[ii], hij[ii], grad)
 
-    def test_gradient_array(self):
-        """ Verifies if it performs well on multiple entries. """
-        # Arrange
-        kernel = Gaussian()
-        x = np.array([[1., 1.], [0.5, 0.5]])
-        r = np.array([0.25, 0.25])
-        h = np.array([1, 1]) * 1.3 * 0.25
-
-        # Act
-        grad = kernel.gradient(x, r, h)
-
-        # Assert
-        self.assertAlmostEqual(grad[0][0], -31.576769410027108)
-        self.assertAlmostEqual(grad[0][1], -31.576769410027108)
-        self.assertAlmostEqual(grad[1][0], -15.788384705013554)
-        self.assertAlmostEqual(grad[1][1], -15.788384705013554)
-
+                    # Check values
+                    self.assertAlmostEqual(dwij[ii, 0], grad[0])
+                    self.assertAlmostEqual(dwij[ii, 1], grad[1])
 
 if __name__ == '__main__':
     unittest.main()

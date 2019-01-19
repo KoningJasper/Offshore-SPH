@@ -1,9 +1,13 @@
-from matplotlib.animation import FuncAnimation
-from sys import stdout
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+from sys import stdout
+from tqdm.autonotebook import tqdm
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
+
+# Own files
+from src.FasterFFMpegWriter import FasterFFMpegWriter
 
 # TODO: Move this constant to a parameter.
 plt.rcParams['animation.ffmpeg_path'] = 'C:\\ffmpeg\\bin\\ffmpeg.exe'
@@ -23,6 +27,9 @@ class Animation:
     xsolid: np.array
     ysolid: np.array
 
+    """ Progress-bar handle, initialized with none. """
+    pbar: tqdm = None
+
     def __init__(self, x: np.array, y: np.array, c: np.array, fps: float = 30, xlim: list = [-10, 10], ylim: list = [-10, 10], xsolid: np.array = None, ysolid: np.array = None, r: float = 1):
         """
         Initialize a new animation
@@ -33,7 +40,7 @@ class Animation:
         self.x = x
         self.y = y
         self.c = c
-        self.fps = 30
+        self.fps = fps
         self.t_max = x.shape[1]
         self.xlim = xlim
         self.ylim = ylim
@@ -54,17 +61,17 @@ class Animation:
         s: np.array = np.ones(len(self.x[:, 1])) * (self.r ** 2 / 4)
 
         # Create the figure with the scatter plot
-        self.fig = plt.figure(figsize=(8, 8), dpi=200)
+        self.fig = plt.figure()
         self.ax = self.fig.add_axes([0, 0, 1, 1], frameon=True)
         self.sctr = self.ax.scatter(
             self.x[:, 0], self.y[:, 0], c=self.c[:, 0], s=s)
 
         # Add the solid if any
         if (self.xsolid is not None) and (self.ysolid is not None):
-            self.ax.scatter(self.xsolid, self.ysolid)
+            self.ax.scatter(self.xsolid, self.ysolid, s=(np.ones(len(self.xsolid)) * (self.r ** 2 / 4)))
 
         # Add the (pressure) colorbar
-        self.fig.colorbar(self.sctr, label='Pressure [Pa]')
+        #self.fig.colorbar(self.sctr, label='Pressure [Pa]')
 
         # Decorate the plot
         self.ax.grid()
@@ -74,23 +81,35 @@ class Animation:
         self.ax.set_ylabel('Y [m]')
         self.ax.set_title('Dam Break 2D')
 
+        # Create progress-bar
+        self.pbar = tqdm(total=self.t_max, unit='fps', desc='Exporting animation')
+        self.pbar.update() # Increment with one
+
+        # Create a writer
+        #writer = FasterFFMpegWriter('-vcodec', codec, '-framerate', f'{self.fps}')
+        writer = FasterFFMpegWriter()
+
         # Create and save the animation
         animation = FuncAnimation(
             self.fig, self.update, frames=range(self.t_max))
-        animation.save(file, extra_args=[
-                       '-vcodec', codec, '-framerate', f'{self.fps}'])
+        animation.save(file, writer=writer)
 
     def update(self, frame_number: int):
+        # Sometimes called without a framenumber for some weird reason.
         if not frame_number:
-            return
+            # Return the artist, requires a trailing comma.
+            return self.sctr,
 
-        stdout.flush()
-        percent = round(frame_number / self.t_max * 100, 2)
-        print(f'{percent}%', end='\r')
+        # Update the progress-bar, increment by one (1).
+        self.pbar.update()
 
         # The colors (Pressure)
         self.sctr.set_array(self.c[:, frame_number])
 
+        # Update the x-y
         xx = self.x[:, frame_number]
         yy = self.y[:, frame_number]
         self.sctr.set_offsets(np.transpose(np.array([xx, yy])))
+
+        # Return the artist, requires a trailing comma.
+        return self.sctr,
