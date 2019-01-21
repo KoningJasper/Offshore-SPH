@@ -35,7 +35,7 @@ Examples are contained in the `examples` directory. These examples contain valid
 
 Examples can be run by using the following command in the root folder of the project.
 ```sh
-python -m example.dam_break_simple
+python -m examples.dam_break_complete
 ```
 
 Running this example should only take a couple of minutes and create a ``dam_break_simple.mp4`` video in the root folder of the project.
