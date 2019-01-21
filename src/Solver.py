@@ -6,6 +6,7 @@ import math
 
 # Other packages
 import numpy as np
+from tqdm import tqdm
 from scipy.spatial.distance import cdist
 from numba import prange, autojit
 from typing import List
@@ -113,83 +114,96 @@ class Solver:
         t_step: int = 0   # Step
         t: float    = 0.0 # Current time
         print('Started solving...')
-        while t < self.duration:
-            # TODO: Move this to separate class and function.
-            # Distance and neighbourhood
-            r = np.array([p.r for p in self.particles])
-            dist = cdist(r, r, 'euclidean')
+        with tqdm(total=self.duration, desc='Time-stepping', unit='s') as tbar:
+            while t < self.duration:
+                # TODO: Move this to separate class and function.
+                # Distance and neighbourhood
+                r = np.array([p.r for p in self.particles])
+                dist = cdist(r, r, 'euclidean')
 
-            # Distance of closest particle time 1.3
-            # TODO: Move to separate class.
-            h: np.array = 1.3 * np.ma.masked_values(dist, 0.0, copy=False).min(1)
-
-            # Acceleration and force loop
-            for i in range(self.num_particles):
-                # For convenience, copy to p variable.
-                p = self.particles[i]
-
-                # Run EOS
-                p.p = self.method.compute_pressure(p)
-
-                # Query neighbours
+                # Distance of closest particle time 1.3
                 # TODO: Move to separate class.
-                h_i: np.array = 0.5 * (h[i] + h[:])
-                q_i: np.array = dist[i, :] / (h_i)
-                near_arr: np.array = np.flatnonzero(np.argwhere(q_i <= 3.0)) # Find neighbours and remove self (0).
+                h: np.array = 1.3 * np.ma.masked_values(dist, 0.0, copy=False).min(1)
 
-                # Skip if got no neighbours
-                # Keep same properties, no acceleration.
-                if len(near_arr) == 0:
-                    continue
+                # Pbar
+                with tqdm(total=self.num_particles, desc='Acceleration eval', unit='particle', leave=False) as pbar:
+                    # Acceleration and force loop
+                    for i in range(self.num_particles):
+                        # For convenience, copy to p variable.
+                        p = self.particles[i]
 
-                # Calc vectors
-                xij: np.array = p.r - r[near_arr, :]
-                rij: np.array = dist[i, near_arr]
-                vij: np.array = p.v - self.v[near_arr, :, t_step]
+                        # Run EOS
+                        p.p = self.method.compute_pressure(p)
 
-                # Calc averaged properties
-                hij: np.array = h_i[near_arr]
-                cij: np.array = np.ones(len(near_arr)) * self.method.compute_speed_of_sound(p) # This is a constant (currently).
+                        # Query neighbours
+                        # TODO: Move to separate class.
+                        h_i: np.array = 0.5 * (h[i] + h[:])
+                        q_i: np.array = dist[i, :] / (h_i)
+                        near_arr: np.array = np.flatnonzero(np.argwhere(q_i <= 3.0)) # Find neighbours and remove self (0).
 
-                # kernel calculations
-                wij = self.kernel.evaluate(xij, rij, hij)
-                dwij = self.kernel.gradient(xij, rij, hij)
+                        # Skip if got no neighbours
+                        # Keep same properties, no acceleration.
+                        if len(near_arr) == 0:
+                            continue
 
-                # Continuity
-                p.drho = self.method.compute_density_change(p, vij, dwij)
+                        # Calc vectors
+                        xij: np.array = p.r - r[near_arr, :]
+                        rij: np.array = dist[i, near_arr]
+                        vij: np.array = p.v - self.v[near_arr, :, t_step]
 
-                # Gradient 
-                if p.label == 'fluid':
-                    p.a = self.method.compute_acceleration(i, p, xij, rij, vij, self.c[near_arr, t_step], self.u[near_arr, t_step], hij, cij, wij, dwij)
-                    p.v = self.method.compute_velocity(i, p)
-                # end fluid
+                        # Calc averaged properties
+                        hij: np.array = h_i[near_arr]
+                        cij: np.array = np.ones(len(near_arr)) * self.method.compute_speed_of_sound(p) # This is a constant (currently).
 
-                # Assign back
-                self.particles[i] = p
-            # end acc. loop
+                        # kernel calculations
+                        wij = self.kernel.evaluate(xij, rij, hij)
+                        dwij = self.kernel.gradient(xij, rij, hij)
 
-            # Integration loop
-            for i in range(self.num_particles):
-                # Integrate
-                self.particles[i] = self.integrator.integrate(self.dt, self.particles[i])
+                        # Continuity
+                        p.drho = self.method.compute_density_change(p, vij, dwij)
 
-                # Put into giant-matrix
-                p = self.particles[i] # Easier
-                self.x[i, t_step + 1] = p.r[0]
-                self.y[i, t_step + 1] = p.r[1]
-                self.c[i, t_step + 1] = p.p
-                self.u[i, t_step + 1] = p.rho
-                self.v[i, :, t_step + 1] = p.v
-                self.a[i, :, t_step + 1] = p.a
-                self.drho[i, t_step + 1] = p.drho
+                        # Gradient 
+                        if p.label == 'fluid':
+                            p.a = self.method.compute_acceleration(i, p, xij, rij, vij, self.c[near_arr, t_step], self.u[near_arr, t_step], hij, cij, wij, dwij)
+                            p.v = self.method.compute_velocity(i, p)
+                        # end fluid
 
-            # End integration-loop
-            t += self.dt
-            t_step += 1
+                        # Assign back
+                        self.particles[i] = p
 
-            # Update and export plot
-            self.update_frame(t_step)
-            self.export(t_step)
+                        # Increment with one particle
+                        pbar.update(1)
+                    # end acc. loop
+                # end with pbar
+
+                # Integration loop
+                for i in range(self.num_particles):
+                    # Integrate
+                    self.particles[i] = self.integrator.integrate(self.dt, self.particles[i])
+
+                    # Put into giant-matrix
+                    p = self.particles[i] # Easier
+                    self.x[i, t_step + 1] = p.r[0]
+                    self.y[i, t_step + 1] = p.r[1]
+                    self.c[i, t_step + 1] = p.p
+                    self.u[i, t_step + 1] = p.rho
+                    self.v[i, :, t_step + 1] = p.v
+                    self.a[i, :, t_step + 1] = p.a
+                    self.drho[i, t_step + 1] = p.drho
+
+                # End integration-loop
+                t += self.dt
+                t_step += 1
+
+                # Update and export plot
+                if self.plot == True:
+                    self.update_frame(t_step)
+                    self.export(t_step)
+
+                # Update tbar
+                tbar.update(self.dt)
+            # End while
+        # End-with
 
     def save(self):
         """
