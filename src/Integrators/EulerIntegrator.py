@@ -1,10 +1,10 @@
 from src.Particle import Particle
+from src.Integrators.Integrator import Integrator
 
-
-class EulerIntegrator():
+class EulerIntegrator(Integrator):
     """ Stupidly simple Euler Integrator """
     @classmethod
-    def integrate(self, dt: float, p: Particle):
+    def integrate(self, dt: float, p: Particle) -> Particle:
         """
         Parameters
         ----------
@@ -20,3 +20,5 @@ class EulerIntegrator():
             p.r = p.r + dt * p.v
 
         p.rho = p.rho + dt * p.drho
+
+        return p

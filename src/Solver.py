@@ -84,8 +84,9 @@ class Solver:
         self.a = np.zeros([self.num_particles, 2, time_step_guess]) # Acceleration both x and y
 
         # Initialization
-        for p in self.particles:
-            self.method.initialize(p)
+        for i in range(self.num_particles):
+            self.particles[i]   = self.method.initialize(self.particles[i])
+            self.particles[i].p = self.method.compute_pressure(self.particles[i])
 
         # Set 0-th time-step
         self.x[:, 0] = [p.r[0] for p in self.particles]
@@ -97,6 +98,8 @@ class Solver:
             self.init_plot()
             self.export(0)
 
+        print('Setup complete.')
+
     def solve(self):
         """
             Solve the equations setup
@@ -105,11 +108,11 @@ class Solver:
         if len(self.particles) == 0 or len(self.particles) != self.num_particles:
             raise Exception('No or invalid particles set!')
 
-        t_step: int = 0   # Step
-        t: float    = 0.0 # Current time
-        
         # Keep integrating until simulation duration is reached.
         # TODO: Change giant-matrix size if wrong due to different time-steps.
+        t_step: int = 0   # Step
+        t: float    = 0.0 # Current time
+        print('Started solving...')
         while t < self.duration:
             # TODO: Move this to separate class and function.
             # Distance and neighbourhood
@@ -122,12 +125,14 @@ class Solver:
 
             # Acceleration and force loop
             for i in range(self.num_particles):
+                # For convenience, copy to p variable.
                 p = self.particles[i]
 
                 # Run EOS
                 p.p = self.method.compute_pressure(p)
 
                 # Query neighbours
+                # TODO: Move to separate class.
                 h_i: np.array = 0.5 * (h[i] + h[:])
                 q_i: np.array = dist[i, :] / (h_i)
                 near_arr: np.array = np.flatnonzero(np.argwhere(q_i <= 3.0)) # Find neighbours and remove self (0).
@@ -158,17 +163,18 @@ class Solver:
                     p.a = self.method.compute_acceleration(i, p, xij, rij, vij, self.c[near_arr, t_step], self.u[near_arr, t_step], hij, cij, wij, dwij)
                     p.v = self.method.compute_velocity(i, p)
                 # end fluid
+
+                # Assign back
+                self.particles[i] = p
             # end acc. loop
 
             # Integration loop
             for i in range(self.num_particles):
-                # Select the current particle
-                p = self.particles[i]
-
                 # Integrate
-                self.integrator.integrate(self.dt, p)
+                self.particles[i] = self.integrator.integrate(self.dt, self.particles[i])
 
                 # Put into giant-matrix
+                p = self.particles[i] # Easier
                 self.x[i, t_step + 1] = p.r[0]
                 self.y[i, t_step + 1] = p.r[1]
                 self.c[i, t_step + 1] = p.p

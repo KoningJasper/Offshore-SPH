@@ -2,7 +2,7 @@ import numpy as np
 
 
 class Continuity():
-    def Continuity(self, mass: float, dwij: np.array, vij: np.array) -> float:
+    def calc(self, mass: float, dwij: np.array, vij: np.array) -> float:
         """
             SPH continuity equation; Calculates the change is density of the particles.
         """

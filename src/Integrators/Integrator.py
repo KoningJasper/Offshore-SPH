@@ -3,5 +3,5 @@ from src.Particle import Particle
 
 class Integrator():
     @abc.abstractmethod
-    def integrate(self, dt: float, p: Particle):
+    def integrate(self, dt: float, p: Particle) -> Particle:
         pass

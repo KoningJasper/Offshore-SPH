@@ -23,9 +23,10 @@ class WCSPH(Method):
         self.xsphs = [None] * num_particles
 
     # Override
-    def initialize(self, p: Particle):
+    def initialize(self, p: Particle) -> Particle:
         """ Initialize the particles, should only be run once at the start of the solver. """
         p.rho = self.taitEOS.initialize(p)
+        return p
 
     def compute_speed_of_sound(self, p: Particle) -> float:
         return self.taitEOS.co
@@ -48,8 +49,12 @@ class WCSPH(Method):
 
     # Override
     def compute_velocity(self, i: int, p: Particle) -> np.array:
-        # Retrieve the stored xsph-velocity
+        # Retrieve the stored xsph-velocity, already contains the eta factor.
         xsph = self.xsphs[i]
 
         # Calc new velocity
         return p.v + xsph
+
+    # override
+    def compute_density_change(self, p: Particle, vij: np.array, dwij: np.array) -> float:
+        return self.continuity.calc(p.m, dwij, vij)
