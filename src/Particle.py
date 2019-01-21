@@ -8,6 +8,9 @@ class Particle:
         self.m = mass
         self.rho = rho
 
+    """ Mass of the particle. """
+    m: float
+
     """ Current position of the particle. """
     r: np.array
 
