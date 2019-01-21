@@ -207,61 +207,36 @@ if __name__ == '__main__':
                 i += 1
                 continue
 
-            # Set zero variables
-            _au = 0.0; _au_d = 0.0; _av = 0.0; _av_d = 0.0
-            _arho = 0.0; _xsphx = 0.0; _xsphy = 0.0
-
             # Calc vectors
             xij: np.array = p.r - r[near_arr, :]
             rij: np.array = dist[i, near_arr]
             vij: np.array = p.v - v[near_arr, :, t_step]
 
             # Calc averaged properties
-            hij: np.array   = h_i[near_arr]
-            rhoij: np.array = 0.5 * (p.rho + u[near_arr, t_step])
-            cij: np.array   = np.ones(len(near_arr)) * wcsph.co # This is a constant (currently).
+            hij: np.array = h_i[near_arr]
+            cij: np.array = np.ones(len(near_arr)) * wcsph.co # This is a constant (currently).
 
             # kernel calculations
             wij = kernel.evaluate(xij, rij, hij)
             dwij = kernel.gradient(xij, rij, hij)
 
             # Continuity
-            vijdotwij = np.sum(vij * dwij, axis=1) # row by row dot product
-            _arho = np.sum(mass * vijdotwij, axis=0)
+            p.drho = wcsph.Continuity(mass, dwij, vij)
 
             # Gradient 
             if p.label == 'fluid':
-                tmp = p.p / (p.rho * p.rho) + c[near_arr, t_step] / (u[near_arr, t_step] * u[near_arr, t_step])
-                _au = np.sum(- mass * tmp * dwij[:, 0], axis=0)
-                _av = np.sum(- mass * tmp * dwij[:, 1], axis=0)
+                # Compute Momentum and XSPH velocity correction.
+                [a, xsph] = wcsph.Momentum(mass, p, xij, rij, vij, c[near_arr, t_step], u[near_arr, t_step], hij, cij, wij, dwij, True)
 
-                # Diffusion
-                dot = np.sum(vij * xij, axis=1) # Row by row dot product
-                piij = np.zeros(len(near_arr))
+                # Add gravity to the fluid
+                a = wcsph.Gravity(a, gx, gy)
 
-                # Perform diffusion for masked entities
-                mask       = dot < 0
-                if any(mask):
-                    muij       = hij[mask] * dot[mask] / (rij[mask] * rij[mask] + 0.01 * hij[mask] * hij[mask])
-                    muij       = muij
-                    piij[mask] = muij * (beta * muij - alpha * cij[mask])
-                    piij[mask] = piij[mask] / rhoij[mask]
+                # Correct the velocity
+                p.v = p.v + xsph
 
-                _au_d = np.sum(- mass * piij * dwij[:, 0])
-                _av_d = np.sum(- mass * piij * dwij[:, 1])
-
-                # XSPH
-                _xsphtmp = mass / rhoij * wij
-                _xsphx = np.sum(_xsphtmp * -vij[:, 0], axis=0) # -vij = vji
-                _xsphy = np.sum(_xsphtmp * -vij[:, 1], axis=0)
+                # Set the new acceleration
+                p.a = a
             # end fluid
-
-            # Store the new properties
-            if p.label == 'fluid':
-                p.a = np.array([_au + _au_d + gx, _av + _av_d + gy])
-                p.v[0] = p.v[0] + eta * _xsphx
-                p.v[1] = p.v[1] + eta * _xsphy
-            p.drho = _arho
 
             # Next Particle
             i += 1
