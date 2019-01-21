@@ -4,11 +4,12 @@ from src.Particle import Particle
 class TaitEOS():
     """
         TaitEOS
-
+        -------
+        
         Equation of state for that relates the pressure to the density of a particle.
     """
-
-     """ Tait EOS factor """
+    
+    """ Tait EOS factor """
     gamma: float
 
     """ Rest density of fluid [kg/m^3] """
@@ -24,6 +25,12 @@ class TaitEOS():
     H: float
 
     def __init__(self, height: float = 1.0, gamma: float = 7.0, rho0: float = 1000.0):
+        """
+            TaitEOS
+            -------
+            
+            Equation of state for that relates the pressure to the density of a particle.
+        """
         self.gamma = gamma
         self.rho0 = rho0
         self.H = height
@@ -32,7 +39,7 @@ class TaitEOS():
         self.co = 10.0 * np.sqrt(2 * 9.81 * self.H)
         self.B = self.co * self.co * self.rho0 / self.gamma
 
-    def initialize() -> float
+    def initialize(self, p: Particle) -> float:
         """ returns the density of particle based on height (y) of particle """
         y = p.r[1]
         frac  = self.rho0 * 9.81 * (self.H - y) / self.B

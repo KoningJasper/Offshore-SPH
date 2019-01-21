@@ -1,7 +1,7 @@
 from src.Particle import Particle
 
 
-class EulerIntegrater():
+class EulerIntegrator():
     """ Stupidly simple Euler Integrator """
     @classmethod
     def integrate(self, dt: float, p: Particle):
@@ -10,7 +10,7 @@ class EulerIntegrater():
         ----------
 
         dt: time-step
-        
+
         p: Particle to integrate
         """
 
