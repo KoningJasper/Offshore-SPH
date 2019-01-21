@@ -13,7 +13,7 @@ class Method():
         pass
 
     @abc.abstractmethod
-    def compute_speed_of_sound(self, p: Particle):
+    def compute_speed_of_sound(self, p: Particle) -> float:
         pass
 
     @abc.abstractmethod
@@ -25,9 +25,9 @@ class Method():
         pass
 
     @abc.abstractmethod
-    def compute_acceleration(self, p: Particle, xij: np.array, rij: np.array, vij: np.array, pressure: np.array, rho: np.array, hij: np.array, cij: np.array, wij: np.array, dwij: np.array) -> np.array:
+    def compute_acceleration(self, i: int, p: Particle, xij: np.array, rij: np.array, vij: np.array, pressure: np.array, rho: np.array, hij: np.array, cij: np.array, wij: np.array, dwij: np.array) -> np.array:
         pass
 
     @abc.abstractmethod
-    def compute_velocity(self, p: Particle) -> np.array:
+    def compute_velocity(self, i: int, p: Particle) -> np.array:
         pass

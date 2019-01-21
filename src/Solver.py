@@ -1,12 +1,22 @@
+import sys, tempfile, subprocess
 import numpy as np
 from scipy.spatial.distance import cdist
 from numba import prange, autojit
 from typing import List
+
+# Own components
 from src.Particle import Particle
 from src.Methods.Method import Method
 from src.Kernels.Kernel import Kernel
 from src.Integrators.Integrator import Integrator
+from src.ColorBar import ColorBar
 
+# Plotting
+import pyqtgraph as pg
+import pyqtgraph.exporters
+from pyqtgraph.Qt import QtCore
+from pyqtgraph.graphicsItems import TextItem
+from pyqtgraph.graphicsItems.GradientEditorItem import Gradients
 
 class Solver:
     """
@@ -18,12 +28,13 @@ class Solver:
     kernel: Kernel
     duration: float
     dt: float
+    plot: bool
 
     # Particle information
     particles: List[Particle]
     num_particles: int
 
-    def __init__(self, method: Method, integrator: Integrator, kernel: Kernel, duration: float, dt: float):
+    def __init__(self, method: Method, integrator: Integrator, kernel: Kernel, duration: float, dt: float, plot: bool):
         """
             Parameters
             ----------
@@ -37,12 +48,15 @@ class Solver:
             duration: The duration of the simulation in seconds.
 
             dt: timestep [s]
+
+            plot: Should a plot be created?
         """
 
         self.method     = method
         self.integrator = integrator
         self.kernel     = kernel
         self.duration   = duration
+        self.plot       = plot
         
         # TODO: Remove
         self.dt = dt
@@ -72,6 +86,10 @@ class Solver:
         self.y[:, 0] = [p.r[1] for p in self.particles]
         self.c[:, 0] = [p.p for p in self.particles]
         self.u[:, 0] = [p.rho for p in self.particles]
+
+        if self.plot == True:
+            self.init_plot()
+            self.export(0)
 
     def solve(self):
         """
@@ -127,8 +145,8 @@ class Solver:
 
                 # Gradient 
                 if p.label == 'fluid':
-                    p.a = self.method.compute_acceleration(p, xij, rij, vij, self.c[near_arr, t_step], self.u[near_arr, t_step], hij, cij, wij, dwij)
-                    p.v = self.method.compute_velocity(p)
+                    p.a = self.method.compute_acceleration(i, p, xij, rij, vij, self.c[near_arr, t_step], self.u[near_arr, t_step], hij, cij, wij, dwij)
+                    p.v = self.method.compute_velocity(i, p)
                 # end fluid
             # end acc. loop
 
@@ -153,11 +171,87 @@ class Solver:
             t += self.dt
             t_step += 1
 
+            # Update and export plot
+            self.update_frame(t_step)
+            self.export(t_step)
+
     def save(self):
         """
             Saves the output to a compressed export .npz file.
         """
         
+        # Export movie if relevant.
+        if self.plot == True:
+            self.export_mp4()
+
         # Export compressed numpy-arrays
         np.savez_compressed(f'{sys.path[0]}/export', x=self.x, y=self.y, p=self.c, rho=self.u, v=self.v, a=self.a, drho=self.drho)
         print(f'Exported arrays to: "{sys.path[0]}/export.npz".')
+
+    # Plotting functions
+    def export(self, frame: int):
+        # Export
+        self.exporter = pyqtgraph.exporters.ImageExporter(self.pw.plotItem)
+        self.exporter.params.param('width').setValue(700, blockSignal=self.exporter.widthChanged)
+        self.exporter.params.param('height').setValue(500, blockSignal=self.exporter.heightChanged)
+
+        frame_str = "{:06}".format(frame)
+        self.exporter.export(f'{self.tempdir.name}/export_{frame_str}.png')
+
+    def update_frame(self, frame: int) -> None:
+        self.pl.setData(x=self.x[:, frame], y=self.y[:, frame], symbolBrush=self.cm.map(self.c[:, frame], 'qcolor'), symbolSize=self.sZ)
+        time: int = frame * self.dt
+        self.txtItem.setText(f't = {time:f} [s]')
+
+    def init_plot(self):
+        """ Initialize the plot. """
+        # use less ink
+        pg.setConfigOption('background', 'w')
+        pg.setConfigOption('foreground', 'k')
+        pg.setConfigOptions(antialias=True)
+
+        # Plot
+        # TODO: Change the titles.
+        # TODO: Set range automatically, or from parameter; at least not hard-coded.
+        self.pw = pg.plot(title='Dam break (2D)', labels={'left': 'Y [m]', 'bottom': 'X [m]', 'top': 'Dam Break (2D)'})
+        self.pw.setXRange(-3, 81)
+        self.pw.setYRange(-3, 41)
+
+        # Text
+        self.txtItem = pg.TextItem(text = f't = 0.00000 [s]')
+        self.pw.scene().addItem(self.txtItem)
+        [[xmin, xmax], [_, _]] = self.txtItem.getViewBox().viewRange()
+        xrange = xmax - xmin
+        self.txtItem.translate(350.0 - xrange, 90.0)
+
+        # make colormap
+        c_range = np.linspace(0, 1, num=10)
+        colors = []
+        for cc in c_range:
+            colors.append([cc, 0.0, 1 - cc, 1.0]) # Blue to red color spectrum
+        stops = np.round(c_range * (np.max(self.c[:, 0])) / 1000, 0)
+        self.cm = pg.ColorMap(stops, np.array(colors))
+        
+        # make colorbar, placing by hand
+        cb = ColorBar(self.cm, 10, 200, label='Pressure [kPa]')#, [0., 0.5, 1.0])
+        self.pw.scene().addItem(cb)
+        cb.translate(610.0, 90.0)
+
+        # Initial points
+        self.sZ = (40 * (2 / (self.num_particles ** 0.5)))
+        self.pl = self.pw.plot(self.x[:, 0], self.y[:, 0], pen=None, symbol='o', symbolBrush=self.cm.map(self.c[:, 0] / 1000, 'qcolor'), symbolPen=None, symbolSize=self.sZ)
+
+        # Frame 0 export.
+        self.tempdir = tempfile.TemporaryDirectory()
+        print(f'Exporting frames to directory: {self.tempdir.name}')
+        self.export(0)
+
+    def export_mp4(self):
+        # Export to mp4
+        fps = np.round(0.5 / self.dt) # Frames per second
+        subprocess.run(f'ffmpeg -hide_banner -loglevel panic -y -r {fps} -i "{self.tempdir.name}/export_%06d.png" -c:v libx264 -vf fps=10 -pix_fmt yuv420p "{sys.path[0]}/export.mp4"')
+        print('Export complete!')
+        print(f'Exported to "{sys.path[0]}/export.mp4".')
+
+        # Cleanup export dir
+        self.tempdir.cleanup()

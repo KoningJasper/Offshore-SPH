@@ -41,6 +41,6 @@ class TaitEOS():
     def calc(self, pi: Particle) -> float:
         ratio = pi.rho / self.rho0
         temp  = ratio ** self.gamma
-        pi.p  = (temp - 1.0) * self.B
+        p  = (temp - 1.0) * self.B
 
-        return pi.p
+        return p
