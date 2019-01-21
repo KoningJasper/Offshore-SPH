@@ -1,4 +1,10 @@
-import sys, tempfile, subprocess
+# Import python packages
+import sys
+import tempfile
+import subprocess
+import math
+
+# Other packages
 import numpy as np
 from scipy.spatial.distance import cdist
 from numba import prange, autojit
@@ -31,8 +37,8 @@ class Solver:
     plot: bool
 
     # Particle information
-    particles: List[Particle]
-    num_particles: int
+    particles: List[Particle] = []
+    num_particles: int = 0
 
     def __init__(self, method: Method, integrator: Integrator, kernel: Kernel, duration: float, dt: float, plot: bool):
         """
@@ -61,12 +67,12 @@ class Solver:
         # TODO: Remove
         self.dt = dt
 
-    def addParticle(self, particles):
-        self.particles.append(particles)
+    def addParticles(self, particles: List[Particle]):
+        self.particles.extend(particles)
 
     def setup(self):
         self.num_particles: int = len(self.particles)
-        time_step_guess: int = self.duration / self.dt
+        time_step_guess: int = math.ceil(self.duration / self.dt)
 
         # Empty time arrays
         self.x = np.zeros([self.num_particles, time_step_guess]) # X-pos
@@ -95,6 +101,10 @@ class Solver:
         """
             Solve the equations setup
         """
+        # Check particle length.
+        if len(self.particles) == 0 or len(self.particles) != self.num_particles:
+            raise Exception('No or invalid particles set!')
+
         t_step: int = 0   # Step
         t: float    = 0.0 # Current time
         
