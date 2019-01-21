@@ -1,6 +1,6 @@
 import numpy as np
 from src.Particle import Particle
-
+from typing import List
 
 class WCSPH:
     """ Weakly compressible SPH """
@@ -20,16 +20,23 @@ class WCSPH:
     """ Water column height """
     H: float
 
-    def __init__(self, height: float = 1.0, gamma: float = 7.0, rho0: float = 1000.0):
+    beta: float
+    alpha: float
+    eta: float
+
+    def __init__(self, height: float = 1.0, gamma: float = 7.0, rho0: float = 1000.0, beta: float = 0.0, alpha: float = 0.01, eta: float = 0.5):
         self.gamma = gamma
         self.rho0 = rho0
         self.H = height
 
         # Monaghan (2002) p. 1746
-        g = 9.81
-        v = np.sqrt(2 * g * self.H)
-        self.B = 100 * self.rho0 * v ** 2 / self.gamma
-        self.co = self.gamma * self.B / self.rho0
+        self.co = 10.0 * np.sqrt(2 * 9.81 * self.H)
+        self.B = self.co * self.co * self.rho0 / self.gamma
+
+        # Monaghan parameters
+        self.beta = beta
+        self.alpha = alpha
+        self.eta = eta
 
     def inital_condition(self, p: Particle) -> None:
         self.height_density(p)
@@ -47,52 +54,98 @@ class WCSPH:
         p.a = np.array([0., 0.])
         p.drho = 0.
 
-    def Momentum(self, mass: float, p: Particle, pressure: np.array, rho: np.array, dwij: np.array) -> None:
+    def Momentum(self, mass: float, p: Particle, xij: np.array, rij: np.array, vij: np.array, pressure: np.array, rho: np.array, hij: np.array, cij: np.array, wij: np.array, dwij: np.array, xsph: bool) -> List:
         """
             Monaghan Momentum equation
+
+
+            Parameters:
+
+            p: The particle to compute the acceleration for.
+
+            xij: Position difference
+
+            rij: (Norm) distance between particles.
+
+            vij: Velocity difference (vi - vj)
+
+            pressure: Pressures of the near particles.
+
+            rho: Densities of the near particles.
+
+            hij:
+
+            cij: Speed of sound [m/s].
+
+            dwij: Kernel gradient
+
+            xsph: XSPH correction velocity.
+
+
+
+            Returns:
+
+            If xsph is true a list is returned with [acceleration, xsph]
+
+            If xsph is false a list is returned with [acceleration]
         """
-        rj = 1.0 / (p.rho * p.rho)
-        pj = p.p * rj
-        for i in range(len(pressure)):
-            ri = 1.0 / (rho[i] * rho[i])
-            qt = pressure[i] * ri
-            pt = qt + pj
 
-            # DO NOT USE +=
-            # THIS DOES NOT WORK
-            # IT HAS TAKEN YEARS OF MY LIFE.
-            p.a = p.a - mass * pt * dwij[i, :]
-        return p.a
-        # pii: np.array = np.divide(pressure, rho * rho) # Others
-        # pjj: float = p.p / (p.rho * p.rho) # Self
-        # tmp: np.array = pii + pjj # Sum
+        # Average density.
+        rhoij: np.array = 0.5 * (p.rho + rho)
 
-        # # Create for multiple dimensions
-        # fac: np.array = mass * tmp
-        # vec = np.zeros([len(pressure), 2])
-        # vec[:, 0] = fac
-        # vec[:, 1] = fac
+        # Compute first (easy) part.
+        tmp = p.p / (p.rho * p.rho) + pressure / (rho * rho)
+        _au = np.sum(- mass * tmp * dwij[:, 0], axis=0)
+        _av = np.sum(- mass * tmp * dwij[:, 1], axis=0)
 
-        # # Assign the acceleration
-        # p.a += -1 * np.sum(np.multiply(vec, dwij), axis=0)
+        # Diffusion
+        dot = np.sum(vij * xij, axis=1) # Row by row dot product
+        piij = np.zeros(len(pressure))
+
+        # Perform diffusion for masked entities
+        mask       = dot < 0
+        if any(mask):
+            muij       = hij[mask] * dot[mask] / (rij[mask] * rij[mask] + 0.01 * hij[mask] * hij[mask])
+            muij       = muij
+            piij[mask] = muij * (self.beta * muij - self.alpha * cij[mask])
+            piij[mask] = piij[mask] / rhoij[mask]
+
+        # Calculate change in density.
+        _au_d = np.sum(- mass * piij * dwij[:, 0])
+        _av_d = np.sum(- mass * piij * dwij[:, 1])
+
+        # XSPH
+        if xsph == True:
+            _xsphtmp = mass / rhoij * wij
+            _xsphx = np.sum(_xsphtmp * -vij[:, 0], axis=0) # -vij = vji
+            _xsphy = np.sum(_xsphtmp * -vij[:, 1], axis=0)
+
+            return [np.array([_au + _au_d, _au + _av_d]), np.array([self.eta * _xsphx, self.eta * _xsphy])]
+        else:
+            return [np.array([_au + _au_d, _au + _av_d])]
 
     @classmethod
-    def Continuity(self, mass: float, pi: Particle, dwij: np.array, vij: np.array, numParticles: int) -> None:
+    def Continuity(self, mass: float, dwij: np.array, vij: np.array) -> float:
         """
-            SPH continuity equation
+            SPH continuity equation; Calculates the change is density of the particles.
         """
-        for i in range(numParticles):
-            vdotw: float = np.dot(vij[i, :], dwij[i, :])
-            pi.drho = pi.drho + mass * vdotw
-        return pi.drho
-        # vdotw = np.diag(np.dot(vij, np.transpose(dwij)))
-        # pi.drho = pi.drho + np.sum(mass * vdotw)
+        # Init
+        _arho = 0.0
+
+        # Calc change in density
+        vijdotwij = np.sum(vij * dwij, axis=1) # row by row dot product
+        _arho = np.sum(mass * vijdotwij, axis=0)
+
+        return _arho
+
 
     @classmethod
-    def Gravity(self, p: Particle, gx: float, gy: float) -> None:
-        p.a = p.a + np.array([gx, gy])
-        return p.a
+    def Gravity(self, a: np.array, gx: float, gy: float) -> np.array:
+        return a + np.array([gx, gy])
 
-    def TaitEOS(self, pi: Particle) -> None:
-        pi.p = self.B * ((pi.rho / self.rho0) ** self.gamma - 1)
+    def TaitEOS(self, pi: Particle) -> float:
+        ratio = pi.rho / self.rho0
+        temp  = ratio ** self.gamma
+        pi.p  = (temp - 1.0) * self.B
+
         return pi.p
