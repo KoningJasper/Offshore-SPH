@@ -12,6 +12,7 @@ from numba import prange, autojit
 from typing import List
 
 # Own components
+from src.Common import particle_dtype, computed_dtype, types
 from src.Particle import Particle
 from src.Methods.Method import Method
 from src.Kernels.Kernel import Kernel
@@ -39,6 +40,7 @@ class Solver:
 
     # Particle information
     particles: List[Particle] = []
+    particleArray: np.array
     num_particles: int = 0
 
     def __init__(self, method: Method, integrator: Integrator, kernel: Kernel, duration: float, dt: float, plot: bool):
@@ -71,8 +73,17 @@ class Solver:
     def addParticles(self, particles: List[Particle]):
         self.particles.extend(particles)
 
+    def _convertParticles(self):
+        """ Convert the particle classes to a numpy array. """
+        self.particleArray = np.array([(types[p.label], p.m, p.rho, p.p, 0, 0, p.x, p.y, 0, 0, 0, 0) for p in self.particles])
+        self.num_particles = len(self.particleArray)
+
     def setup(self):
-        self.num_particles: int = len(self.particles)
+        """ Sets-up the solver, with the required parameters. """
+        # Convert the particle array.
+        self._convertParticles()
+
+        # Initial guess for the timestep.
         time_step_guess: int = math.ceil(self.duration / self.dt)
 
         # Empty time arrays
@@ -85,6 +96,7 @@ class Solver:
         self.a = np.zeros([self.num_particles, 2, time_step_guess]) # Acceleration both x and y
 
         # Initialization
+        self.particleArray
         for i in range(self.num_particles):
             self.particles[i]   = self.method.initialize(self.particles[i])
             self.particles[i].p = self.method.compute_pressure(self.particles[i])
