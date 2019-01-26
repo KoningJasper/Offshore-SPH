@@ -1,5 +1,6 @@
 import numpy as np
-
+import math
+from numba import vectorize, jit
 from src.Particle import Particle
 
 class TaitEOS():
@@ -46,18 +47,11 @@ class TaitEOS():
         frac  = self.rho0 * 9.81 * (self.H - y) / self.B
         return self.rho0 * (1 + frac) ** (1 / self.gamma)      
 
-    def calc(self, rho: float) -> float:
-        ratio = rho / self.rho0
-        temp  = ratio ** self.gamma
-        p  = (temp - 1.0) * self.B
+    def calc(self, rho: np.array) -> np.array:
+        return _compute_pressure_vec(rho, self.rho0, self.gamma, self.B)
 
-        return p
-
-
-from numba import vectorize
-import math
 
 @vectorize(['float64(float64, float64, float64, float64)'], target='parallel')
-def compute_pressure_vec(rho, rho0, gamma, B):
+def _compute_pressure_vec(rho, rho0, gamma, B):
     ratio = (rho / rho0) ** gamma
     return (ratio - 1.0) * B
