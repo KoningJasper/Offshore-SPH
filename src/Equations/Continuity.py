@@ -1,16 +1,26 @@
 import numpy as np
-
+import math
+from numba import vectorize, jit, prange
 
 class Continuity():
-    def calc(self, mass: float, dwij: np.array, vij: np.array) -> float:
+    def calc(self, mass: np.array, dwij: np.array, vij: np.array) -> float:
         """
             SPH continuity equation; Calculates the change is density of the particles.
         """
-        # Init
-        _arho = 0.0
+        return _calc_outer(mass, dwij, vij)
 
-        # Calc change in density
-        vijdotwij = np.sum(vij * dwij, axis=1) # row by row dot product
-        _arho = np.sum(mass * vijdotwij, axis=0)
+@vectorize(['float64(float64, float64, float64)'], target='parallel')
+def _calc_inner(mass, dwij, vij):
+    return mass * vij * dwij
 
-        return _arho
+@jit
+def _calc_outer(mass, dwij, vij):
+    _arho = 0.0
+    I = len(dwij)
+    inner = _calc_inner(mass, dwij, vij)
+
+    # Stupid sum; for numba
+    for i in prange(I):
+        _arho += inner[i]
+
+    return _arho
