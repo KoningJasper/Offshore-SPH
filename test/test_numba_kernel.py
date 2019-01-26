@@ -111,6 +111,3 @@ class test_numba_kernel(unittest.TestCase):
         grad_dim[:, 1] = w_grad
 
         return grad_dim * x
-
-
-test_numba_kernel().test()
