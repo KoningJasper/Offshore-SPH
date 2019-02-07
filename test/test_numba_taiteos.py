@@ -28,6 +28,7 @@ class test_numba_taiteos(unittest.TestCase):
             # Verify
             self.assertAlmostEqual(p_s, p[i])
 
+        print('Completed TaitEOS')
         print(f'Timing:')
         print(f'Old: {t_old:f} [s]')
         print(f'New: {t_vec:f} [s]')

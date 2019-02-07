@@ -37,6 +37,7 @@ class test_numba_continuity(unittest.TestCase):
         # Assert
         self.assertAlmostEqual(arho_o / arho, 1)
 
+        print('Completed Continuity')
         print(f'Timing:')
         print(f'Old: {t_old:f} [s]')
         print(f'New: {t_vec:f} [s]')

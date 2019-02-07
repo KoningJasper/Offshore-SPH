@@ -64,6 +64,7 @@ class test_numba_kernel(unittest.TestCase):
             for j in range(J):
                 self.assertAlmostEqual(wij_o_total[i, j], wij_n_total[i, j])
 
+        print('Completed Kernel')
         print(f'Timing:')
         print(f'Old: {o_t:f} [s]')
         print(f'New: {n_t:f} [s]')

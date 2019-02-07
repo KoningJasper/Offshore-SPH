@@ -64,6 +64,7 @@ class test_numba_momentum(unittest.TestCase):
         self.assertAlmostEqual(a_old[0], a_x)
         self.assertAlmostEqual(a_old[1], a_y)
 
+        print('Completed Momentum')
         print(f'Timing:')
         print(f'Old: {t_old:f} [s]')
         print(f'New: {t_vec:f} [s]')
