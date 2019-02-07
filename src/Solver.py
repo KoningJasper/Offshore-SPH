@@ -163,7 +163,7 @@ class Solver:
             while t < self.duration:
                 # TODO: Move this to separate class and function.
                 # Distance and neighbourhood
-                r = np.transpose(np.vstack((self.particleArray[:]['x'], self.particleArray[:]['y'])))
+                r = np.transpose(np.vstack((self.particleArray['x'], self.particleArray['y'])))
                 dist = cdist(r, r, 'euclidean')
 
                 # Distance of closest particle time 1.3
@@ -214,17 +214,17 @@ class Solver:
                 # Integration loop
                 for i in range(self.num_particles):
                     # Integrate
-                    self.particles[i] = self.integrator.integrate(self.dt, self.particles[i])
+                    self.particleArray[i] = self.integrator.integrate(self.dt, self.particleArray[i])
 
                     # Put into giant-matrix
-                    p = self.particles[i] # Easier
-                    self.x[i, t_step + 1] = p.r[0]
-                    self.y[i, t_step + 1] = p.r[1]
-                    self.c[i, t_step + 1] = p.p
-                    self.u[i, t_step + 1] = p.rho
-                    self.v[i, :, t_step + 1] = p.v
-                    self.a[i, :, t_step + 1] = p.a
-                    self.drho[i, t_step + 1] = p.drho
+                    p = self.particleArray[i] # Easier
+                    self.x[i, t_step + 1] = p['x']
+                    self.y[i, t_step + 1] = p['y']
+                    self.c[i, t_step + 1] = p['p']
+                    self.u[i, t_step + 1] = p['rho']
+                    self.v[i, :, t_step + 1] = np.array([p['vx'], p['vy']])
+                    self.a[i, :, t_step + 1] = np.array([p['ax'], p['ay']])
+                    self.drho[i, t_step + 1] = p['drho']
 
                 # End integration-loop
                 t += self.dt
