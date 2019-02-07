@@ -48,12 +48,11 @@ class test_numba_momentum(unittest.TestCase):
         c_j = np.ones(len(dwij_x)) * cs
 
         # Pre-compile
-        mom.calc(1000.0, 0.0, cs, 1.3, m, rho_o, p_o, c_j, h_j, xij_x, rij[0, :], vij_x, dwij_x)
+        mom.calc(1000.0, 0.0, cs, 1.3, m, rho_o, p_o, c_j, h_j, xij, rij[0, :], vij, dwij)
 
         # Calc vectorized
         start_vec = perf_counter()
-        a_x = mom.calc(1000.0, 0.0, cs, 1.3, m, rho_o, p_o, c_j, h_j, xij_x, rij[0, :], vij_x, dwij_x)
-        a_y = mom.calc(1000.0, 0.0, cs, 1.3, m, rho_o, p_o, c_j, h_j, xij_y, rij[0, :], vij_y, dwij_y)
+        [a_x, a_y] = mom.calc(1000.0, 0.0, cs, 1.3, m, rho_o, p_o, c_j, h_j, xij, rij[0, :], vij, dwij)
         t_vec = perf_counter() - start_vec
 
         # Calc old

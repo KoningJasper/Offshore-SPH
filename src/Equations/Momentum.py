@@ -13,7 +13,7 @@ class Momentum():
         self.alpha = alpha
         self.beta = beta
 
-    def calc(self, rho_i: float, p_i: float, cs_i: float, h_i: float, m_j: np.array, rho_j: np.array, p_j: np.array, cs_j: np.array, h_j: np.array, xij, rij, vij, dwij) -> float:
+    def calc(self, rho_i: float, p_i: float, cs_i: float, h_i: float, m_j: np.array, rho_j: np.array, p_j: np.array, cs_j: np.array, h_j: np.array, xij, rij, vij, dwij) -> List[float]:
         """
             Monaghan Momentum equation
 
@@ -57,17 +57,17 @@ class Momentum():
         return _loop(self.alpha, self.beta, rho_i, p_i, cs_i, h_i, m_j, rho_j, p_j, cs_j, h_j, xij, rij, vij, dwij);
 
 @njit
-def _loop(alpha: float, beta: float, rho_i: float, p_i: float, cs_i: float, h_i: float, m_j: np.array, rho_j: np.array, p_j: np.array, cs_j: np.array, h_j: np.array, xij, rij, vij, dwij):
+def _loop(alpha: float, beta: float, rho_i: float, p_i: float, cs_i: float, h_i: float, m_j: np.array, rho_j: np.array, p_j: np.array, cs_j: np.array, h_j: np.array, xij, rij, vij, dwij) -> List[float]:
     slf = p_i / (rho_i * rho_i) # Lifted from the loop since it's constant.
 
-    a = 0.0
+    a = [0.0, 0.0]
     J = len(p_j)
     for j in prange(J):
         # Compute acceleration due to pressure.
         othr = p_j[j] / (rho_j[j] * rho_j[j])
 
         # (Artificial) Viscosity
-        dot = vij[j] * xij[j]
+        dot = vij[j, 0] * xij[j, 0] + vij[j, 1] * xij[j, 1]
         PI_ij = 0.0
         if dot < 0:
             # Averaged properties
@@ -83,5 +83,6 @@ def _loop(alpha: float, beta: float, rho_i: float, p_i: float, cs_i: float, h_i:
         factor = slf + othr + PI_ij
 
         # Compute acceleration
-        a += - m_j[j] * factor * dwij[j]
+        a[0] += - m_j[j] * factor * dwij[j, 0]
+        a[1] += - m_j[j] * factor * dwij[j, 1]
     return a
