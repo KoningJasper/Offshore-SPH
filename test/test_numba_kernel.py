@@ -29,6 +29,9 @@ class test_numba_kernel(unittest.TestCase):
         o_t: float = 0.
         n_t: float = 0.
 
+        # Pre-compile
+        kernel.evaluate(np.array(d), d * 1.3)
+
         wij_o_total: np.array = np.zeros([len(r), len(r) - 1])
         wij_n_total: np.array = np.zeros([len(r), len(r) - 1])
         dwij_o_total: np.array = np.zeros([len(r), len(r) - 1, 2])
@@ -55,7 +58,6 @@ class test_numba_kernel(unittest.TestCase):
             wij_o_total[i, :] = wij_o
             wij_n_total[i, :] = wij_n
 
-
         # Compare the results
         I, J = wij_o_total.shape
         for i in range(I):
@@ -65,6 +67,7 @@ class test_numba_kernel(unittest.TestCase):
         print(f'Timing:')
         print(f'Old: {o_t:f} [s]')
         print(f'New: {n_t:f} [s]')
+        print(f'Speed-up: {o_t / n_t:f}x')
 
     def old_func(self, r: np.array, h: np.array, alpha: float):
         # Normalize distance
@@ -111,3 +114,6 @@ class test_numba_kernel(unittest.TestCase):
         grad_dim[:, 1] = w_grad
 
         return grad_dim * x
+
+if __name__ == "__main__":
+    test_numba_kernel().test()
