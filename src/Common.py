@@ -11,7 +11,7 @@ types = {
 particle_dtype = np.dtype(
     {
         'names': ['type', 'm', 'rho', 'p', 'drho', 'h', 'x', 'y', 'vx', 'vy', 'ax', 'ay'],
-        'types': [
+        'formats': [
             np.int8,
             np.double,
             np.double,
@@ -23,15 +23,16 @@ particle_dtype = np.dtype(
             np.double,
             np.double,
             np.double,
-            np.double,
+            np.double
         ]
     }
 )
 
+# Properties needed for computation
 computed_dtype = np.dtype({
     'names': [
         # Single properties
-        'h', 'q', 'c', 'r', 
+        'm', 'rho', 'h', 'q', 'c', 'r', 
         
         # Kernel
         'w',
@@ -41,7 +42,9 @@ computed_dtype = np.dtype({
         # Positional
         'x', 'y', 'vx', 'vy'
     ],
-    'types': [
+    'formats': [
+        np.double,
+        np.double,
         np.double,
         np.double,
         np.double,
