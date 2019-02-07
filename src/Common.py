@@ -8,11 +8,19 @@ types = {
     'temp-boundary': 2
 }
 
+def get_label_code(label: str) -> int:
+    return types[label]
+
+def get_label(code: int) -> str:
+    # TODO: Make this work.
+    return ''
+
 particle_dtype = np.dtype(
     {
-        'names': ['type', 'm', 'rho', 'p', 'drho', 'h', 'x', 'y', 'vx', 'vy', 'ax', 'ay'],
+        'names': ['label', 'm', 'rho', 'p', 'c', 'drho', 'h', 'x', 'y', 'vx', 'vy', 'ax', 'ay'],
         'formats': [
             np.int8,
+            np.double,
             np.double,
             np.double,
             np.double,
@@ -32,7 +40,7 @@ particle_dtype = np.dtype(
 computed_dtype = np.dtype({
     'names': [
         # Single properties
-        'm', 'rho', 'h', 'q', 'c', 'r', 
+        'm', 'p', 'rho', 'h', 'q', 'c', 'r', 
         
         # Kernel
         'w',
@@ -43,17 +51,21 @@ computed_dtype = np.dtype({
         'x', 'y', 'vx', 'vy'
     ],
     'formats': [
+        # Single
         np.double,
         np.double,
         np.double,
         np.double,
-        np.double,
-        np.double,
-
         np.double,
         np.double,
         np.double,
 
+        # Kernel
+        np.double,
+        np.double,
+        np.double,
+
+        # Positional
         np.double,
         np.double,
         np.double,

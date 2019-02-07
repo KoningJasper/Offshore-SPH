@@ -41,9 +41,8 @@ class TaitEOS():
         self.co = 10.0 * np.sqrt(2 * 9.81 * self.H)
         self.B = self.co * self.co * self.rho0 / self.gamma
 
-    def initialize(self, p: Particle) -> float:
+    def initialize(self, y: float) -> float:
         """ returns the density of particle based on height (y) of particle """
-        y = p.r[1]
         frac  = self.rho0 * 9.81 * (self.H - y) / self.B
         return self.rho0 * (1 + frac) ** (1 / self.gamma)      
 
