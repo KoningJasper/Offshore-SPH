@@ -22,11 +22,11 @@ class test_numba_continuity(unittest.TestCase):
         m = np.ones(len(dwij_x))
 
         # Pre-compile
-        cc.calc(m, dwij_x, vij_x) 
+        cc.calc(m, dwij, vij)
 
         # Calc vectorized
         start_vec = perf_counter()
-        arho = cc.calc(m, dwij_x, vij_x) + cc.calc(m, dwij_y, vij_y)
+        arho = cc.calc(m, dwij, vij)
         t_vec = perf_counter() - start_vec
 
         # Calc old
