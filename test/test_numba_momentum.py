@@ -38,26 +38,27 @@ class test_numba_momentum(unittest.TestCase):
 
         p_o = np.linspace(0, 10_000, num)
         rho_o = np.ones_like(p_o) * 1025
-        hij = np.ones_like(p_o) * 1.3
-        cij = np.linspace(0, 10_000, num)
+        h_j = np.ones_like(p_o) * 1.3
         wij = np.linspace(0, 10_000, num)
-
         m = np.ones(len(dwij_x))
 
         p = Particle('fluid', 0, 0, 1.0, 1000)
 
+        cs = 10.0 * np.sqrt(2 * 9.81 * 1.0)
+        c_j = np.ones(len(dwij_x)) * cs
+
         # Pre-compile
-        mom.calc(m, p, xij_x, rij, vij_x, p_o, rho_o, hij, cij, wij, dwij_x)
+        mom.calc(1000.0, 0.0, cs, 1.3, m, rho_o, p_o, c_j, h_j, xij_x, rij[0, :], vij_x, dwij_x)
 
         # Calc vectorized
         start_vec = perf_counter()
-        a_x = mom.calc(m, p, xij_x, rij, vij_x, p_o, rho_o, hij, cij, wij, dwij_x)
-        a_y = mom.calc(m, p, xij_y, rij, vij_y, p_o, rho_o, hij, cij, wij, dwij_y)
+        a_x = mom.calc(1000.0, 0.0, cs, 1.3, m, rho_o, p_o, c_j, h_j, xij_x, rij[0, :], vij_x, dwij_x)
+        a_y = mom.calc(1000.0, 0.0, cs, 1.3, m, rho_o, p_o, c_j, h_j, xij_y, rij[0, :], vij_y, dwij_y)
         t_vec = perf_counter() - start_vec
 
         # Calc old
         start_old = perf_counter()
-        [a_old] = self._calc_old(m, p, xij, rij, vij, p_o, rho_o, hij, cij, wij, dwij, False)
+        [a_old] = self._calc_old(m, p, xij, rij[:, 0], vij, p_o, rho_o, h_j, c_j, wij, dwij, False)
         t_old = perf_counter() - start_old
 
         # Assert
