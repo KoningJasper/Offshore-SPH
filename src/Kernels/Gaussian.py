@@ -1,4 +1,6 @@
 import numpy as np
+import math
+from numba import vectorize, njit
 from src.Kernels.Kernel import Kernel
 
 
@@ -19,36 +21,12 @@ class Gaussian(Kernel):
         # 2D, according to Liu, M.B. (2009)
         self.alpha = 1 / (np.pi)
 
-    def evaluate(self, x: np.array, r: np.array, h: np.array) -> np.array:
-        # Normalize distance
-        q: np.array = np.divide(r, h)
-
-        # Calculate alpha complete
-        alpha_c: np.array = self.alpha / np.power(h, 2)
-
-        # Calculate kernel values where smaller or equal than 3.
-        k = np.zeros(len(r))
-        mask = q <= 3
-        k[mask] = np.multiply(alpha_c[mask], np.exp(
-            np.multiply(-q[mask], q[mask])))
-
-        return k
-
+    def evaluate(self, r: np.array, h: np.array) -> np.array:
+        return _evaluate_vec(r, h, self.alpha)
+        
     def derivative(self, r: np.array, h: np.array) -> np.array:
         """ Computes the derivative of the gradient for all the points. """
-        # Normalize distance
-        q: np.array = np.divide(r, h)
-
-        # Calculate alpha complete
-        alpha_c: np.array = self.alpha / np.power(h, 2)
-
-        # Calculate kernel gradient where smaller or equal than 3.
-        k = np.zeros(len(r))
-        mask = q <= 3
-        k[mask] = -2 * np.multiply(q[mask], np.multiply(alpha_c[mask],
-                                                        np.exp(np.multiply(-q[mask], q[mask]))))
-
-        return k
+        return _derivative_vec(r, h, self.alpha)
 
     def gradient(self, x: np.array, r: np.array, h: np.array) -> np.array:
         """ 
@@ -56,17 +34,40 @@ class Gaussian(Kernel):
 
         grad = -2 * q * alpha * exp(-q^2)
         """
+        return _gradient_vec(x, r, h, self.alpha)
 
-        # compute the gradient.
-        w_grad = np.zeros(len(r))
+""" Outside of class for numba. """
+@vectorize(['float64(float64, float64, float64)'], target='parallel')
+def _evaluate_vec(r, h, alpha):
+    """ Vectorized method for evaluation of kernel function. """
+    q = r / h
+    if q <= 3:
+        alpha_c = alpha / (h * h)
+        return alpha_c * math.exp(-q * q)
+    else:
+        return 0
 
+@vectorize(['float64(float64, float64, float64)'], target='parallel')
+def _derivative_vec(r, h, alpha):
+    q = r / h
+    if q <= 3:
+        alpha_c = alpha / (h * h)
+        return -2 * q * alpha_c * math.exp(-q * q)
+    else:
+        return 0
+
+@vectorize(['float64(float64, float64, float64, float64)'], target='parallel')
+def _gradient_vec(x, r, h, alpha):
+    tmp = r * h
+    if tmp > 1e-12:
         # Treshold value to prevent divide by zero, q should always be bigger than 0.
-        mask = r > 1e-12
-        w_grad[mask] = self.derivative(r[mask], h[mask]) / (h[mask] * r[mask])
+        q = r / h
+        if q <= 3:
+            alpha_c = alpha / (h * h)
+            dwdq = -2 * q * alpha_c * math.exp(-q * q)
 
-        # Duplicate for number of dimensions
-        grad_dim = np.ones([len(r), 2])
-        grad_dim[:, 0] = w_grad
-        grad_dim[:, 1] = w_grad
-
-        return grad_dim * x
+            return dwdq / tmp * x
+        else:
+            return 0
+    else:
+        return 0

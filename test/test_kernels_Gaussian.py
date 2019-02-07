@@ -41,7 +41,7 @@ class test_kernels_Gaussian(unittest.TestCase):
                 hij = hdx * np.ones(len(r))
 
                 # Evaluate gradient
-                k = kernel.evaluate(xij, rij, hij)
+                k = kernel.evaluate(rij, hij)
 
                 for ii in range(len(r)):
                     v = pKernel.kernel(xij[ii, :], rij[ii], hij[ii])
@@ -88,7 +88,9 @@ class test_kernels_Gaussian(unittest.TestCase):
                 hij = hdx * np.ones(len(r))
 
                 # Evaluate gradient
-                dwij = kernel.gradient(xij, rij, hij)
+                dwij = np.empty_like(xij)
+                dwij[:, 0] = kernel.gradient(xij[:, 0], rij, hij)
+                dwij[:, 1] = kernel.gradient(xij[:, 1], rij, hij)
 
                 for ii in range(len(r)):
                     grad = [0, 0, 0]

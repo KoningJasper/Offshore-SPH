@@ -1,3 +1,7 @@
+# Add parent folder to path
+import sys, os
+sys.path.insert(1, os.path.join(sys.path[0], '..'))
+
 import numpy as np
 
 from src.Solver import Solver
@@ -57,7 +61,7 @@ def main():
     kernel = Gaussian()
     method = WCSPH(height=25.0, rho0=rho0, num_particles=len(particles))
     integrator = EulerIntegrator()
-    solver = Solver(method, integrator, kernel, duration, dt, True)
+    solver = Solver(method, integrator, kernel, duration, dt, plot=False)
 
     # Add the particles
     solver.addParticles(particles)

@@ -1,4 +1,5 @@
 import numpy as np
+from numba import vectorize, jit, prange, njit
 from typing import List
 from src.Particle import Particle
 
@@ -6,15 +7,13 @@ class Momentum():
     """ Monaghan momentum equation. """
     alpha: float
     beta: float
-    eta: float
 
-    def __init__(self, alpha: float = 0.01, beta: float = 0.0, eta: float = 0.5):
+    def __init__(self, alpha: float = 0.01, beta: float = 0.0):
         # Monaghan parameters
         self.alpha = alpha
         self.beta = beta
-        self.eta = eta
 
-    def calc(self, mass: float, p: Particle, xij: np.array, rij: np.array, vij: np.array, pressure: np.array, rho: np.array, hij: np.array, cij: np.array, wij: np.array, dwij: np.array, xsph: bool) -> List:
+    def calc(self, rho_i: float, p_i: float, cs_i: float, h_i: float, m_j: np.array, rho_j: np.array, p_j: np.array, cs_j: np.array, h_j: np.array, xij, rij, vij, dwij) -> List[float]:
         """
             Monaghan Momentum equation
 
@@ -22,7 +21,23 @@ class Momentum():
             Parameters:
             ------
 
-            p: The particle to compute the acceleration for.
+            rho_i: Density of the particle
+
+            p_i: Pressure of the particle
+            
+            cs_i: Speed of sound of the particle
+
+            h_i: h of the particle
+
+            m_j: masses of the other particles
+
+            rho_j: densities of the other particles.
+
+            p_j: pressures of the other particles.
+
+            cs_j: speed of sound of the other particles.
+
+            h_j: h of the other particles
 
             xij: Position difference
 
@@ -30,58 +45,44 @@ class Momentum():
 
             vij: Velocity difference (vi - vj)
 
-            pressure: Pressures of the near particles.
-
-            rho: Densities of the near particles.
-
-            hij:
-
-            cij: Speed of sound [m/s].
-
             dwij: Kernel gradient
-
-            xsph: XSPH correction velocity.
-
 
 
             Returns:
             ------
 
-            If xsph is true a list is returned with [acceleration, xsph]
-
-            If xsph is false a list is returned with [acceleration]
+            acceleration
         """
 
-        # Average density.
-        rhoij: np.array = 0.5 * (p.rho + rho)
+        return _loop(self.alpha, self.beta, rho_i, p_i, cs_i, h_i, m_j, rho_j, p_j, cs_j, h_j, xij, rij, vij, dwij);
 
-        # Compute first (easy) part.
-        tmp = p.p / (p.rho * p.rho) + pressure / (rho * rho)
-        _au = np.sum(- mass * tmp * dwij[:, 0], axis=0)
-        _av = np.sum(- mass * tmp * dwij[:, 1], axis=0)
+@njit
+def _loop(alpha: float, beta: float, rho_i: float, p_i: float, cs_i: float, h_i: float, m_j: np.array, rho_j: np.array, p_j: np.array, cs_j: np.array, h_j: np.array, xij, rij, vij, dwij) -> List[float]:
+    slf = p_i / (rho_i * rho_i) # Lifted from the loop since it's constant.
 
-        # Diffusion
-        dot = np.sum(vij * xij, axis=1) # Row by row dot product
-        piij = np.zeros(len(pressure))
+    a = [0.0, 0.0]
+    J = len(p_j)
+    for j in prange(J):
+        # Compute acceleration due to pressure.
+        othr = p_j[j] / (rho_j[j] * rho_j[j])
 
-        # Perform diffusion for masked entities
-        mask       = dot < 0
-        if any(mask):
-            muij       = hij[mask] * dot[mask] / (rij[mask] * rij[mask] + 0.01 * hij[mask] * hij[mask])
-            muij       = muij
-            piij[mask] = muij * (self.beta * muij - self.alpha * cij[mask])
-            piij[mask] = piij[mask] / rhoij[mask]
+        # (Artificial) Viscosity
+        dot = vij[j, 0] * xij[j, 0] + vij[j, 1] * xij[j, 1]
+        PI_ij = 0.0
+        if dot < 0:
+            # Averaged properties
+            hij = 0.5 * (h_i + h_j[j]) # Averaged h.
+            cij = 0.5 * (cs_i + cs_j[j]) # Averaged speed of sound.
+            rhoij = 0.5 * (rho_i + rho_j[j]) # Averaged density.
 
-        # Calculate change in density.
-        _au_d = np.sum(- mass * piij * dwij[:, 0])
-        _av_d = np.sum(- mass * piij * dwij[:, 1])
+            muij = hij * dot / (rij[j] * rij[j] + 0.01 * hij * hij)
+            ppij = muij * (beta * muij - alpha * cij)
+            PI_ij = ppij / rhoij
+        
+        # Compute final factor
+        factor = slf + othr + PI_ij
 
-        # XSPH
-        if xsph == True:
-            _xsphtmp = mass / rhoij * wij
-            _xsphx = np.sum(_xsphtmp * -vij[:, 0], axis=0) # -vij = vji
-            _xsphy = np.sum(_xsphtmp * -vij[:, 1], axis=0)
-
-            return [np.array([_au + _au_d, _au + _av_d]), np.array([self.eta * _xsphx, self.eta * _xsphy])]
-        else:
-            return [np.array([_au + _au_d, _au + _av_d])]
+        # Compute acceleration
+        a[0] += - m_j[j] * factor * dwij[j, 0]
+        a[1] += - m_j[j] * factor * dwij[j, 1]
+    return a

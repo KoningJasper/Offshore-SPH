@@ -8,10 +8,11 @@ import math
 import numpy as np
 from tqdm import tqdm
 from scipy.spatial.distance import cdist
-from numba import prange, autojit
+from numba import prange, jit
 from typing import List
 
 # Own components
+from src.Common import particle_dtype, computed_dtype, types, get_label_code
 from src.Particle import Particle
 from src.Methods.Method import Method
 from src.Kernels.Kernel import Kernel
@@ -39,6 +40,7 @@ class Solver:
 
     # Particle information
     particles: List[Particle] = []
+    particleArray: np.array
     num_particles: int = 0
 
     def __init__(self, method: Method, integrator: Integrator, kernel: Kernel, duration: float, dt: float, plot: bool):
@@ -71,9 +73,18 @@ class Solver:
     def addParticles(self, particles: List[Particle]):
         self.particles.extend(particles)
 
+    def _convertParticles(self):
+        """ Convert the particle classes to a numpy array. """
+        self.particleArray = np.array([(types[p.label], p.m, p.rho, p.p, 0, 0, 0, p.r[0], p.r[1], 0, 0, 0, 0) for p in self.particles], dtype=particle_dtype)
+        self.num_particles = len(self.particleArray)
+
     def setup(self):
-        self.num_particles: int = len(self.particles)
-        time_step_guess: int = math.ceil(self.duration / self.dt)
+        """ Sets-up the solver, with the required parameters. """
+        # Convert the particle array.
+        self._convertParticles()
+
+        # Initial guess for the timestep.
+        time_step_guess: int = math.ceil(self.duration / self.dt) + 1
 
         # Empty time arrays
         self.x = np.zeros([self.num_particles, time_step_guess]) # X-pos
@@ -85,9 +96,10 @@ class Solver:
         self.a = np.zeros([self.num_particles, 2, time_step_guess]) # Acceleration both x and y
 
         # Initialization
+        self.particleArray
         for i in range(self.num_particles):
-            self.particles[i]   = self.method.initialize(self.particles[i])
-            self.particles[i].p = self.method.compute_pressure(self.particles[i])
+            self.particleArray[i] = self.method.initialize(self.particleArray[i])
+            self.particleArray[i]['p'] = self.method.compute_pressure(self.particleArray[i])
 
         # Set 0-th time-step
         self.x[:, 0] = [p.r[0] for p in self.particles]
@@ -100,6 +112,39 @@ class Solver:
             self.export(0)
 
         print('Setup complete.')
+
+    def _calcProps(self, i: int, near_arr: np.array, h_i: np.array, q_i: np.array, dist: np.array) -> np.array:
+        calcProps = np.zeros(len(near_arr), dtype=computed_dtype)
+
+        # Fill the props
+        for near_i, pA in enumerate(self.particleArray[near_arr]):
+            # Get global index.
+            global_i = near_arr[near_i]
+
+            # From self properties
+            calcProps[near_i]['p']   = pA['p']
+            calcProps[near_i]['m']   = pA['m']
+            calcProps[near_i]['c']   = pA['c']
+            calcProps[near_i]['rho'] = pA['rho']
+
+            # Pre-calculated properties
+            calcProps[near_i]['h'] = h_i[global_i] # average h, precalculated
+            calcProps[near_i]['q'] = q_i[global_i] # dist / h, precalculated
+            calcProps[near_i]['r'] = dist[global_i] # distance, precalculated
+
+            # Positional values
+            calcProps[near_i]['x'] = self.particleArray[i]['x'] - pA['x']
+            calcProps[near_i]['y'] = self.particleArray[i]['y'] - pA['y']
+            calcProps[near_i]['vx'] = self.particleArray[i]['vx'] - pA['vx']
+            calcProps[near_i]['vy'] = self.particleArray[i]['vy'] - pA['vy']
+        # END_LOOP
+
+        # Kernel values
+        calcProps['w'] = self.kernel.evaluate(calcProps['r'], calcProps['h'])
+        calcProps['dw_x'] = self.kernel.gradient(calcProps['x'], calcProps['r'], calcProps['h'])
+        calcProps['dw_y'] = self.kernel.gradient(calcProps['y'], calcProps['r'], calcProps['h'])
+
+        return calcProps
 
     def solve(self):
         """
@@ -118,7 +163,7 @@ class Solver:
             while t < self.duration:
                 # TODO: Move this to separate class and function.
                 # Distance and neighbourhood
-                r = np.array([p.r for p in self.particles])
+                r = np.transpose(np.vstack((self.particleArray['x'], self.particleArray['y'])))
                 dist = cdist(r, r, 'euclidean')
 
                 # Distance of closest particle time 1.3
@@ -129,47 +174,37 @@ class Solver:
                 with tqdm(total=self.num_particles, desc='Acceleration eval', unit='particle', leave=False) as pbar:
                     # Acceleration and force loop
                     for i in range(self.num_particles):
-                        # For convenience, copy to p variable.
-                        p = self.particles[i]
-
-                        # Run EOS
-                        p.p = self.method.compute_pressure(p)
-
                         # Query neighbours
-                        # TODO: Move to separate class.
+                        # TODO: Move to separate class, do without full enumeration.
                         h_i: np.array = 0.5 * (h[i] + h[:])
                         q_i: np.array = dist[i, :] / (h_i)
                         near_arr: np.array = np.flatnonzero(np.argwhere(q_i <= 3.0)) # Find neighbours and remove self (0).
 
-                        # Skip if got no neighbours
+                        # Skip if got no neighbours, early exit.
                         # Keep same properties, no acceleration.
                         if len(near_arr) == 0:
                             continue
 
-                        # Calc vectors
-                        xij: np.array = p.r - r[near_arr, :]
-                        rij: np.array = dist[i, near_arr]
-                        vij: np.array = p.v - self.v[near_arr, :, t_step]
+                        # Create computed properties
+                        calcProps = self._calcProps(i, near_arr, h_i, q_i, dist[i, :])
 
-                        # Calc averaged properties
-                        hij: np.array = h_i[near_arr]
-                        cij: np.array = np.ones(len(near_arr)) * self.method.compute_speed_of_sound(p) # This is a constant (currently).
+                        # Assign particle
+                        p = self.particleArray[i]
 
-                        # kernel calculations
-                        wij = self.kernel.evaluate(xij, rij, hij)
-                        dwij = self.kernel.gradient(xij, rij, hij)
+                        # Calc speed of sound.
+                        p['c'] = self.method.compute_speed_of_sound(p)
 
+                        # Compute pressure, EOS
+                        p['p'] = self.method.compute_pressure(p)
+                        
                         # Continuity
-                        p.drho = self.method.compute_density_change(p, vij, dwij)
+                        p['drho'] = self.method.compute_density_change(p, calcProps)
 
-                        # Gradient 
-                        if p.label == 'fluid':
-                            p.a = self.method.compute_acceleration(i, p, xij, rij, vij, self.c[near_arr, t_step], self.u[near_arr, t_step], hij, cij, wij, dwij)
-                            p.v = self.method.compute_velocity(i, p)
+                        # Momentum
+                        if p['label'] == get_label_code('fluid'):
+                            [p['ax'], p['ay']] = self.method.compute_acceleration(p, calcProps)
+                            [p['vx'], p['vy']] = self.method.compute_velocity(p, calcProps)
                         # end fluid
-
-                        # Assign back
-                        self.particles[i] = p
 
                         # Increment with one particle
                         pbar.update(1)
@@ -179,17 +214,17 @@ class Solver:
                 # Integration loop
                 for i in range(self.num_particles):
                     # Integrate
-                    self.particles[i] = self.integrator.integrate(self.dt, self.particles[i])
+                    self.particleArray[i] = self.integrator.integrate(self.dt, self.particleArray[i])
 
                     # Put into giant-matrix
-                    p = self.particles[i] # Easier
-                    self.x[i, t_step + 1] = p.r[0]
-                    self.y[i, t_step + 1] = p.r[1]
-                    self.c[i, t_step + 1] = p.p
-                    self.u[i, t_step + 1] = p.rho
-                    self.v[i, :, t_step + 1] = p.v
-                    self.a[i, :, t_step + 1] = p.a
-                    self.drho[i, t_step + 1] = p.drho
+                    p = self.particleArray[i] # Easier
+                    self.x[i, t_step + 1] = p['x']
+                    self.y[i, t_step + 1] = p['y']
+                    self.c[i, t_step + 1] = p['p']
+                    self.u[i, t_step + 1] = p['rho']
+                    self.v[i, :, t_step + 1] = np.array([p['vx'], p['vy']])
+                    self.a[i, :, t_step + 1] = np.array([p['ax'], p['ay']])
+                    self.drho[i, t_step + 1] = p['drho']
 
                 # End integration-loop
                 t += self.dt
@@ -221,7 +256,7 @@ class Solver:
     # Plotting functions
     def export(self, frame: int):
         # Export
-        self.exporter = pyqtgraph.exporters.ImageExporter(self.pw.plotItem)
+        self.exporter = pg.exporters.ImageExporter(self.pw.plotItem)
         self.exporter.params.param('width').setValue(700, blockSignal=self.exporter.widthChanged)
         self.exporter.params.param('height').setValue(500, blockSignal=self.exporter.heightChanged)
 

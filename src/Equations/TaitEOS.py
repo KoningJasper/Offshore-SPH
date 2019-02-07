@@ -1,4 +1,6 @@
 import numpy as np
+import math
+from numba import vectorize, jit
 from src.Particle import Particle
 
 class TaitEOS():
@@ -8,7 +10,7 @@ class TaitEOS():
         
         Equation of state for that relates the pressure to the density of a particle.
     """
-    
+
     """ Tait EOS factor """
     gamma: float
 
@@ -39,15 +41,16 @@ class TaitEOS():
         self.co = 10.0 * np.sqrt(2 * 9.81 * self.H)
         self.B = self.co * self.co * self.rho0 / self.gamma
 
-    def initialize(self, p: Particle) -> float:
+    def initialize(self, y: float) -> float:
         """ returns the density of particle based on height (y) of particle """
-        y = p.r[1]
         frac  = self.rho0 * 9.81 * (self.H - y) / self.B
         return self.rho0 * (1 + frac) ** (1 / self.gamma)      
 
-    def calc(self, pi: Particle) -> float:
-        ratio = pi.rho / self.rho0
-        temp  = ratio ** self.gamma
-        p  = (temp - 1.0) * self.B
+    def calc(self, rho: np.array) -> np.array:
+        return _compute_pressure_vec(rho, self.rho0, self.gamma, self.B)
 
-        return p
+
+@vectorize(['float64(float64, float64, float64, float64)'], target='parallel')
+def _compute_pressure_vec(rho, rho0, gamma, B):
+    ratio = (rho / rho0) ** gamma
+    return (ratio - 1.0) * B

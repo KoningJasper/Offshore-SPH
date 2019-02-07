@@ -4,7 +4,7 @@ import numpy as np
 
 class Kernel(metaclass=abc.ABCMeta):
     @abc.abstractmethod
-    def evaluate(self, x: np.array, r: np.array, h: np.array) -> np.array:
+    def evaluate(self, r: np.array, h: np.array) -> np.array:
         pass
 
     def derivative(self, r: np.array, h: np.array) -> np.array:
