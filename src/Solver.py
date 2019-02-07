@@ -8,7 +8,7 @@ import math
 import numpy as np
 from tqdm import tqdm
 from scipy.spatial.distance import cdist
-from numba import prange, autojit
+from numba import prange, jit
 from typing import List
 
 # Own components
@@ -132,17 +132,17 @@ class Solver:
             calcProps[near_i]['q'] = q_i[global_i] # dist / h, precalculated
             calcProps[near_i]['r'] = dist[global_i] # distance, precalculated
 
-            # Kernel values
-            # TODO: Get the kernel values.
-            calcProps[near_i]['w'] = 0.0
-            calcProps[near_i]['dw_x'] = 0.0
-            calcProps[near_i]['dw_y'] = 0.0
-
             # Positional values
             calcProps[near_i]['x'] = self.particleArray[i]['x'] - pA['x']
             calcProps[near_i]['y'] = self.particleArray[i]['y'] - pA['y']
             calcProps[near_i]['vx'] = self.particleArray[i]['vx'] - pA['vx']
             calcProps[near_i]['vy'] = self.particleArray[i]['vy'] - pA['vy']
+        # END_LOOP
+
+        # Kernel values
+        calcProps['w'] = self.kernel.evaluate(calcProps['r'], calcProps['h'])
+        calcProps['dw_x'] = self.kernel.gradient(calcProps['x'], calcProps['r'], calcProps['h'])
+        calcProps['dw_y'] = self.kernel.gradient(calcProps['y'], calcProps['r'], calcProps['h'])
 
         return calcProps
 
