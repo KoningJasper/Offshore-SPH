@@ -2,10 +2,17 @@ import numpy as np
 from src.Common import get_label_code
 from src.Integrators.Integrator import Integrator
 
-class EulerIntegrator(Integrator):
+class Euler(Integrator):
     """ Stupidly simple Euler Integrator """
-    @classmethod
-    def integrate(self, dt: float, p: np.array) -> np.array:
+
+    def isMultiStage(self) -> bool:
+        return False
+
+    def predict(self, dt: float, p: np.array) -> np.array:
+        """ Predict does nothing in eurler-integrator. """
+        return p
+
+    def correct(self, dt: float, p: np.array) -> np.array:
         """
         Parameters
         ----------

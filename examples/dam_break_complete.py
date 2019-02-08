@@ -8,7 +8,7 @@ from src.Solver import Solver
 from src.Particle import Particle
 from src.Methods.WCSPH import WCSPH
 from src.Kernels.Gaussian import Gaussian
-from src.Integrators.EulerIntegrator import EulerIntegrator
+from src.Integrators.Euler import Euler
 
 def create_particles(N: int, mass: float):
     # Create some particles
@@ -60,7 +60,7 @@ def main():
     # Create the solver
     kernel = Gaussian()
     method = WCSPH(height=25.0, rho0=rho0, num_particles=len(particles))
-    integrator = EulerIntegrator()
+    integrator = Euler()
     solver = Solver(method, integrator, kernel, duration, dt, plot=False)
 
     # Add the particles
