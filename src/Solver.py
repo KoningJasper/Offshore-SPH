@@ -47,7 +47,8 @@ class Solver:
     num_particles: int = 0
 
     # Timing information
-    nbrTime: float = 0.0 # Neighbours
+    nbrHTime: float = 0.0
+    nbrFTime: float = 0.0 
     momTime: float = 0.0 # Momentum
     conTime: float = 0.0 # Continuity
     preTime: float = 0.0 # Prediction
@@ -188,18 +189,17 @@ class Solver:
         # Distance of closest particle time 1.3
         h: np.array = 1.3 * np.ma.masked_values(dist, 0.0, copy=False).min(1)
 
-        self.nbrTime += perf_counter() - start
+        self.nbrHTime += perf_counter() - start
         return (r, dist, h)
 
+    @jit
     def _findNbrs(self, i: int, h: np.array, dist: np.array):
         start = perf_counter()
 
         # Query neighbours
-        h_i: np.array = 0.5 * (h[i] + h[:])
-        q_i: np.array = dist[i, :] / (h_i)
-        near_arr: np.array = np.flatnonzero(np.argwhere(q_i <= 3.0)) # Find neighbours and remove self (0).
+        h_i, q_i, near_arr = _nearNbrs(i, h, dist[i, :])
 
-        self.nbrTime += perf_counter() - start
+        self.nbrFTime += perf_counter() - start
         return (h_i, q_i, near_arr)
 
     def _compute(self):
@@ -322,7 +322,9 @@ class Solver:
         # End-with
 
     def timing(self):
-        total = sum([self.conTime, self.momTime, self.propTime, self.nbrTime, self.storTime, self.preTime, self.corTime])
+        total = sum([self.conTime, self.momTime, self.propTime, self.nbrFTime, self.nbrHTime, self.storTime, self.preTime, self.corTime])
+
+        nbrTime = self.nbrFTime + self.nbrHTime
 
         t = PrettyTable(['Name', 'Time [s]', 'Percentage [%]'])
         t.add_row(['Continuity', round(self.conTime, 3), round(self.conTime / total * 100, 2)])
@@ -330,11 +332,13 @@ class Solver:
         t.add_row(['Properties - Assigning', round(self.propATime, 3), round(self.propATime / total * 100, 2)])
         t.add_row(['Properties - Kernel', round(self.propKTime, 3), round(self.propATime / total * 100, 2)])
         t.add_row(['Properties - Total', round(self.propTime, 3), round(self.propTime / total * 100, 2)])
-        t.add_row(['Neighbours', round(self.nbrTime, 3), round(self.nbrTime / total * 100, 2)])
+        t.add_row(['Neighbours - Hood', round(self.nbrHTime, 3), round(self.nbrHTime / total * 100, 2)])
+        t.add_row(['Neighbours - Find', round(self.nbrFTime, 3), round(self.nbrFTime / total * 100, 2)])
+        t.add_row(['Neighbours - Total', round(nbrTime, 3), round(nbrTime / total * 100, 2)])
         t.add_row(['Storage', round(self.storTime, 3), round(self.storTime / total * 100, 2)])
         t.add_row(['Predictor', round(self.preTime, 3), round(self.preTime / total * 100, 2)])
         t.add_row(['Corrector', round(self.corTime, 3), round(self.corTime / total * 100, 2)])
-        
+
         print(t)
 
     def save(self):
@@ -449,3 +453,20 @@ def _assignProps(i: int, particleArray: np.array, near_arr: np.array, h_i: np.ar
         calcProps[j]['vy'] = particleArray[i]['vy'] - pA['vy']
     # END_LOOP
     return calcProps
+
+@njit
+def _nearNbrs(i: int, h: np.array, dist: np.array):
+    # Create empty complete matrices
+    q_i = np.zeros_like(h)
+    h_i = np.zeros_like(h)
+    near = [] # indices of near particles
+
+    # Check each particle.
+    J = len(h)
+    for j in prange(J):
+        h_i[j] = 0.5 * (h[i] + h[j]) # averaged h.
+        q_i[j] = dist[j] / h_i[j] # q (norm-dist)
+
+        if q_i[j] <= 3.0:
+            near.append(j)
+    return (h_i, q_i, np.array(near))
