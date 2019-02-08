@@ -75,7 +75,7 @@ class Solver:
 
     def _convertParticles(self):
         """ Convert the particle classes to a numpy array. """
-        self.particleArray = np.array([(types[p.label], p.m, p.rho, p.p, 0, 0, 0, p.r[0], p.r[1], 0, 0, 0, 0) for p in self.particles], dtype=particle_dtype)
+        self.particleArray = np.array([(types[p.label], p.m, p.rho, p.p, 0, 0, 0, p.r[0], p.r[1], 0, 0, 0, 0, 0, 0, 0, 0, 0) for p in self.particles], dtype=particle_dtype)
         self.num_particles = len(self.particleArray)
 
     def setup(self):
@@ -213,20 +213,22 @@ class Solver:
         print('Started solving...')
         with tqdm(total=self.duration, desc='Time-stepping', unit='s') as tbar:
             while t < self.duration:
+                # TODO: Some initialization that resets the velocity and drho.
+
                 if self.integrator.isMultiStage() == True:
                     # Start with eval
                     self._compute()
                 
                 # Predict
                 for p in self.particleArray:
-                    p = self.integrator.predict(p)
+                    p = self.integrator.predict(self.dt, p)
 
                 # Compute the accelerations
                 self._compute()
 
                 # Correct
                 for p in self.particleArray:
-                    p = self.integrator.correct()
+                    p = self.integrator.correct(self.dt, p)
 
                 # Integration loop
                 for i in range(self.num_particles):
