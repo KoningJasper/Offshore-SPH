@@ -46,6 +46,8 @@ particle_dtype = np.dtype(
 # Properties needed for computation
 computed_dtype = np.dtype({
     'names': [
+        'label',
+
         # Single properties
         'm', 'p', 'rho', 'h', 'q', 'c', 'r', 
         
@@ -58,6 +60,8 @@ computed_dtype = np.dtype({
         'x', 'y', 'vx', 'vy'
     ],
     'formats': [
+        np.int8,
+        
         # Single
         np.double,
         np.double,

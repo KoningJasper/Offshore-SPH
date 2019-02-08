@@ -6,10 +6,12 @@ import math
 
 # Other packages
 import numpy as np
+from prettytable import PrettyTable
 from tqdm import tqdm
 from scipy.spatial.distance import cdist
-from numba import prange, jit
+from numba import prange, jit, njit
 from typing import List
+from time import perf_counter
 
 # Own components
 from src.Common import particle_dtype, computed_dtype, types, get_label_code
@@ -43,6 +45,18 @@ class Solver:
     particles: List[Particle] = []
     particleArray: np.array
     num_particles: int = 0
+
+    # Timing information
+    nbrHTime: float = 0.0
+    nbrFTime: float = 0.0 
+    momTime: float = 0.0 # Momentum
+    conTime: float = 0.0 # Continuity
+    preTime: float = 0.0 # Prediction
+    corTime: float = 0.0 # Correction
+    propTime: float = 0.0 # calculation of properties.
+    propATime: float = 0.0
+    propKTime: float = 0.0
+    storTime: float = 0.0 # storing properties
 
     def __init__(self, method: Method, integrator: Integrator, kernel: Kernel, duration: float, plot: bool):
         """
@@ -128,36 +142,25 @@ class Solver:
         print('Setup complete.')
 
     def _calcProps(self, i: int, near_arr: np.array, h_i: np.array, q_i: np.array, dist: np.array) -> np.array:
-        calcProps = np.zeros(len(near_arr), dtype=computed_dtype)
+        start = perf_counter()
 
         # Fill the props
-        for near_i, pA in enumerate(self.particleArray[near_arr]):
-            # Get global index.
-            global_i = near_arr[near_i]
+        startA = perf_counter()
+        calcProps = _assignProps(i, self.particleArray, near_arr, h_i, q_i, dist)
+        self.propATime += perf_counter() - startA
 
-            # From self properties
-            calcProps[near_i]['p']   = pA['p']
-            calcProps[near_i]['m']   = pA['m']
-            calcProps[near_i]['c']   = self.method.compute_speed_of_sound(pA)
-            calcProps[near_i]['rho'] = pA['rho']
-
-            # Pre-calculated properties
-            calcProps[near_i]['h'] = h_i[global_i] # average h, precalculated
-            calcProps[near_i]['q'] = q_i[global_i] # dist / h, precalculated
-            calcProps[near_i]['r'] = dist[global_i] # distance, precalculated
-
-            # Positional values
-            calcProps[near_i]['x'] = self.particleArray[i]['x'] - pA['x']
-            calcProps[near_i]['y'] = self.particleArray[i]['y'] - pA['y']
-            calcProps[near_i]['vx'] = self.particleArray[i]['vx'] - pA['vx']
-            calcProps[near_i]['vy'] = self.particleArray[i]['vy'] - pA['vy']
-        # END_LOOP
+        # Speed of sound
+        for p in calcProps:
+            p['c'] = self.method.compute_speed_of_sound(p)
 
         # Kernel values
+        startK = perf_counter()
         calcProps['w'] = self.kernel.evaluate(calcProps['r'], calcProps['h'])
         calcProps['dw_x'] = self.kernel.gradient(calcProps['x'], calcProps['r'], calcProps['h'])
         calcProps['dw_y'] = self.kernel.gradient(calcProps['y'], calcProps['r'], calcProps['h'])
+        self.propKTime += perf_counter() - startK
 
+        self.propTime += perf_counter() - start
         return calcProps
 
     def _minTimeStep(self) -> float:
@@ -167,7 +170,7 @@ class Solver:
             # Only for fluids, the other ones don't move
             if p['label'] != get_label_code('fluid'):
                 continue
-                
+
             if p['h'] < h_min:
                 h_min = p['h']
             if p['c'] > c_max:
@@ -176,16 +179,33 @@ class Solver:
         dt = Courant().calc(h_min, c_max)
         return dt
 
-    def _compute(self):
-        """ Compute the accelerations, velocities, etc. """
-        # TODO: Move this to separate class and function.
+    def _nbrs(self):
+        start = perf_counter()
+
         # Distance and neighbourhood
         r = np.transpose(np.vstack((self.particleArray['x'], self.particleArray['y'])))
         dist = cdist(r, r, 'euclidean')
 
         # Distance of closest particle time 1.3
-        # TODO: Move to separate class.
         h: np.array = 1.3 * np.ma.masked_values(dist, 0.0, copy=False).min(1)
+
+        self.nbrHTime += perf_counter() - start
+        return (r, dist, h)
+
+    @jit
+    def _findNbrs(self, i: int, h: np.array, dist: np.array):
+        start = perf_counter()
+
+        # Query neighbours
+        h_i, q_i, near_arr = _nearNbrs(i, h, dist[i, :])
+
+        self.nbrFTime += perf_counter() - start
+        return (h_i, q_i, near_arr)
+
+    def _compute(self):
+        """ Compute the accelerations, velocities, etc. """
+        # Neighbourhood
+        (r, dist, h) = self._nbrs()
 
         # Re-set accelerations
         self.particleArray['ax'] = 0.0
@@ -196,11 +216,8 @@ class Solver:
         with tqdm(total=self.num_particles, desc='Acceleration eval', unit='particle', leave=False) as pbar:
             # Acceleration and force loop
             for i in range(self.num_particles):
-                # Query neighbours
-                # TODO: Move to separate class, do without full enumeration.
-                h_i: np.array = 0.5 * (h[i] + h[:])
-                q_i: np.array = dist[i, :] / (h_i)
-                near_arr: np.array = np.flatnonzero(np.argwhere(q_i <= 3.0)) # Find neighbours and remove self (0).
+                # Find near neighbours and their h and q
+                (h_i, q_i, near_arr) = self._findNbrs(i, h, dist)
 
                 # Skip if got no neighbours, early exit.
                 # Keep same properties, no acceleration.
@@ -220,12 +237,18 @@ class Solver:
                 p['p'] = self.method.compute_pressure(p)
                 
                 # Continuity
+                start = perf_counter()
                 p['drho'] = self.method.compute_density_change(p, calcProps)
+                self.conTime += perf_counter() - start
 
                 # Momentum
                 if p['label'] == get_label_code('fluid'):
+                    start = perf_counter()
+
                     [p['ax'], p['ay']] = self.method.compute_acceleration(p, calcProps)
                     [p['vx'], p['vy']] = self.method.compute_velocity(p, calcProps)
+
+                    self.momTime += perf_counter() - start
                 # end fluid
 
                 # Increment with one particle
@@ -256,17 +279,22 @@ class Solver:
                     self._compute()
                 
                 # Predict
+                start = perf_counter()
                 for p in self.particleArray:
                     p = self.integrator.predict(self.dt, p)
+                self.preTime += perf_counter() - start
 
                 # Compute the accelerations
                 self._compute()
 
                 # Correct
+                start = perf_counter()
                 for p in self.particleArray:
                     p = self.integrator.correct(self.dt, p)
+                self.corTime += perf_counter() - start
 
-                # Integration loop
+                # Store-loop
+                start = perf_counter()
                 for i in range(self.num_particles):
                     # Put into giant-matrix
                     p = self.particleArray[i] # Easier
@@ -277,6 +305,7 @@ class Solver:
                     self.v[i, :, t_step + 1] = np.array([p['vx'], p['vy']])
                     self.a[i, :, t_step + 1] = np.array([p['ax'], p['ay']])
                     self.drho[i, t_step + 1] = p['drho']
+                self.storTime += perf_counter() - start
 
                 # End integration-loop
                 t += self.dt
@@ -291,6 +320,26 @@ class Solver:
                 tbar.update(self.dt)
             # End while
         # End-with
+
+    def timing(self):
+        total = sum([self.conTime, self.momTime, self.propTime, self.nbrFTime, self.nbrHTime, self.storTime, self.preTime, self.corTime])
+
+        nbrTime = self.nbrFTime + self.nbrHTime
+
+        t = PrettyTable(['Name', 'Time [s]', 'Percentage [%]'])
+        t.add_row(['Continuity', round(self.conTime, 3), round(self.conTime / total * 100, 2)])
+        t.add_row(['Momentum', round(self.momTime, 3), round(self.momTime / total * 100, 2)])
+        t.add_row(['Properties - Assigning', round(self.propATime, 3), round(self.propATime / total * 100, 2)])
+        t.add_row(['Properties - Kernel', round(self.propKTime, 3), round(self.propATime / total * 100, 2)])
+        t.add_row(['Properties - Total', round(self.propTime, 3), round(self.propTime / total * 100, 2)])
+        t.add_row(['Neighbours - Hood', round(self.nbrHTime, 3), round(self.nbrHTime / total * 100, 2)])
+        t.add_row(['Neighbours - Find', round(self.nbrFTime, 3), round(self.nbrFTime / total * 100, 2)])
+        t.add_row(['Neighbours - Total', round(nbrTime, 3), round(nbrTime / total * 100, 2)])
+        t.add_row(['Storage', round(self.storTime, 3), round(self.storTime / total * 100, 2)])
+        t.add_row(['Predictor', round(self.preTime, 3), round(self.preTime / total * 100, 2)])
+        t.add_row(['Corrector', round(self.corTime, 3), round(self.corTime / total * 100, 2)])
+
+        print(t)
 
     def save(self):
         """
@@ -372,3 +421,52 @@ class Solver:
 
         # Cleanup export dir
         self.tempdir.cleanup()
+
+# Moved to outside of class for numba
+@njit
+def _assignProps(i: int, particleArray: np.array, near_arr: np.array, h_i: np.array, q_i: np.array, dist: np.array):
+    J = len(near_arr)
+
+    # Create empty array
+    calcProps = np.zeros(J, dtype=computed_dtype)
+
+    # Fill based on existing data.
+    for j in prange(J):
+        global_i = near_arr[j]
+        pA = particleArray[global_i]
+
+        # From self properties
+        calcProps[j]['p']   = pA['p']
+        calcProps[j]['m']   = pA['m']
+        #calcProps[near_i]['c']   = self.method.compute_speed_of_sound(pA)
+        calcProps[j]['rho'] = pA['rho']
+
+        # Pre-calculated properties
+        calcProps[j]['h'] = h_i[global_i] # average h, precalculated
+        calcProps[j]['q'] = q_i[global_i] # dist / h, precalculated
+        calcProps[j]['r'] = dist[global_i] # distance, precalculated
+
+        # Positional values
+        calcProps[j]['x'] = particleArray[i]['x'] - pA['x']
+        calcProps[j]['y'] = particleArray[i]['y'] - pA['y']
+        calcProps[j]['vx'] = particleArray[i]['vx'] - pA['vx']
+        calcProps[j]['vy'] = particleArray[i]['vy'] - pA['vy']
+    # END_LOOP
+    return calcProps
+
+@njit
+def _nearNbrs(i: int, h: np.array, dist: np.array):
+    # Create empty complete matrices
+    q_i = np.zeros_like(h)
+    h_i = np.zeros_like(h)
+    near = [] # indices of near particles
+
+    # Check each particle.
+    J = len(h)
+    for j in prange(J):
+        h_i[j] = 0.5 * (h[i] + h[j]) # averaged h.
+        q_i[j] = dist[j] / h_i[j] # q (norm-dist)
+
+        if q_i[j] <= 3.0:
+            near.append(j)
+    return (h_i, q_i, np.array(near))
