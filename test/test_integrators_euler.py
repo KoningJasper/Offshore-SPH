@@ -5,11 +5,11 @@ import unittest
 import numpy as np
 
 from src.Common import particle_dtype, get_label_code
-from src.Integrators.EulerIntegrator import EulerIntegrator
+from src.Integrators.Euler import Euler
 
 class test_integrators_euler(unittest.TestCase):
     def test_fluid(self):
-        i = EulerIntegrator()
+        i = Euler()
 
         dt = 2.0
         p = np.zeros(1, dtype=particle_dtype)
@@ -20,7 +20,7 @@ class test_integrators_euler(unittest.TestCase):
         p['ax'] = 5.0
         p['ay'] = 0
         p['drho'] = 10
-        p2 = i.integrate(dt, p)
+        p2 = i.correct(dt, p)
 
         # Verify
         self.assertAlmostEqual(p2['x'], 0.0)
@@ -30,7 +30,7 @@ class test_integrators_euler(unittest.TestCase):
         # Now as a fluid
         p['rho'] = 0.0
         p['label'] = get_label_code('fluid')
-        p3 = i.integrate(dt, p)
+        p3 = i.correct(dt, p)
 
         # Verify
         self.assertAlmostEqual(p3['x'], 1.0 * dt + 0.5 * 5.0 * dt * dt)

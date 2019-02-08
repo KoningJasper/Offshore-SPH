@@ -75,7 +75,7 @@ class Solver:
 
     def _convertParticles(self):
         """ Convert the particle classes to a numpy array. """
-        self.particleArray = np.array([(types[p.label], p.m, p.rho, p.p, 0, 0, 0, p.r[0], p.r[1], 0, 0, 0, 0) for p in self.particles], dtype=particle_dtype)
+        self.particleArray = np.array([(types[p.label], p.m, p.rho, p.p, 0, 0, 0, p.r[0], p.r[1], 0, 0, 0, 0, 0, 0, 0, 0, 0) for p in self.particles], dtype=particle_dtype)
         self.num_particles = len(self.particleArray)
 
     def setup(self):
@@ -146,6 +146,58 @@ class Solver:
 
         return calcProps
 
+    def _compute(self):
+        """ Compute the accelerations, velocities, etc. """
+        # TODO: Move this to separate class and function.
+        # Distance and neighbourhood
+        r = np.transpose(np.vstack((self.particleArray['x'], self.particleArray['y'])))
+        dist = cdist(r, r, 'euclidean')
+
+        # Distance of closest particle time 1.3
+        # TODO: Move to separate class.
+        h: np.array = 1.3 * np.ma.masked_values(dist, 0.0, copy=False).min(1)
+
+        # Pbar
+        with tqdm(total=self.num_particles, desc='Acceleration eval', unit='particle', leave=False) as pbar:
+            # Acceleration and force loop
+            for i in range(self.num_particles):
+                # Query neighbours
+                # TODO: Move to separate class, do without full enumeration.
+                h_i: np.array = 0.5 * (h[i] + h[:])
+                q_i: np.array = dist[i, :] / (h_i)
+                near_arr: np.array = np.flatnonzero(np.argwhere(q_i <= 3.0)) # Find neighbours and remove self (0).
+
+                # Skip if got no neighbours, early exit.
+                # Keep same properties, no acceleration.
+                if len(near_arr) == 0:
+                    continue
+
+                # Create computed properties
+                calcProps = self._calcProps(i, near_arr, h_i, q_i, dist[i, :])
+
+                # Assign particle
+                p = self.particleArray[i]
+
+                # Calc speed of sound.
+                p['c'] = self.method.compute_speed_of_sound(p)
+
+                # Compute pressure, EOS
+                p['p'] = self.method.compute_pressure(p)
+                
+                # Continuity
+                p['drho'] = self.method.compute_density_change(p, calcProps)
+
+                # Momentum
+                if p['label'] == get_label_code('fluid'):
+                    [p['ax'], p['ay']] = self.method.compute_acceleration(p, calcProps)
+                    [p['vx'], p['vy']] = self.method.compute_velocity(p, calcProps)
+                # end fluid
+
+                # Increment with one particle
+                pbar.update(1)
+            # end acc. loop
+        # end with pbar
+
     def solve(self):
         """
             Solve the equations setup
@@ -161,61 +213,25 @@ class Solver:
         print('Started solving...')
         with tqdm(total=self.duration, desc='Time-stepping', unit='s') as tbar:
             while t < self.duration:
-                # TODO: Move this to separate class and function.
-                # Distance and neighbourhood
-                r = np.transpose(np.vstack((self.particleArray['x'], self.particleArray['y'])))
-                dist = cdist(r, r, 'euclidean')
+                # TODO: Some initialization that resets the velocity and drho.
 
-                # Distance of closest particle time 1.3
-                # TODO: Move to separate class.
-                h: np.array = 1.3 * np.ma.masked_values(dist, 0.0, copy=False).min(1)
+                if self.integrator.isMultiStage() == True:
+                    # Start with eval
+                    self._compute()
+                
+                # Predict
+                for p in self.particleArray:
+                    p = self.integrator.predict(self.dt, p)
 
-                # Pbar
-                with tqdm(total=self.num_particles, desc='Acceleration eval', unit='particle', leave=False) as pbar:
-                    # Acceleration and force loop
-                    for i in range(self.num_particles):
-                        # Query neighbours
-                        # TODO: Move to separate class, do without full enumeration.
-                        h_i: np.array = 0.5 * (h[i] + h[:])
-                        q_i: np.array = dist[i, :] / (h_i)
-                        near_arr: np.array = np.flatnonzero(np.argwhere(q_i <= 3.0)) # Find neighbours and remove self (0).
+                # Compute the accelerations
+                self._compute()
 
-                        # Skip if got no neighbours, early exit.
-                        # Keep same properties, no acceleration.
-                        if len(near_arr) == 0:
-                            continue
-
-                        # Create computed properties
-                        calcProps = self._calcProps(i, near_arr, h_i, q_i, dist[i, :])
-
-                        # Assign particle
-                        p = self.particleArray[i]
-
-                        # Calc speed of sound.
-                        p['c'] = self.method.compute_speed_of_sound(p)
-
-                        # Compute pressure, EOS
-                        p['p'] = self.method.compute_pressure(p)
-                        
-                        # Continuity
-                        p['drho'] = self.method.compute_density_change(p, calcProps)
-
-                        # Momentum
-                        if p['label'] == get_label_code('fluid'):
-                            [p['ax'], p['ay']] = self.method.compute_acceleration(p, calcProps)
-                            [p['vx'], p['vy']] = self.method.compute_velocity(p, calcProps)
-                        # end fluid
-
-                        # Increment with one particle
-                        pbar.update(1)
-                    # end acc. loop
-                # end with pbar
+                # Correct
+                for p in self.particleArray:
+                    p = self.integrator.correct(self.dt, p)
 
                 # Integration loop
                 for i in range(self.num_particles):
-                    # Integrate
-                    self.particleArray[i] = self.integrator.integrate(self.dt, self.particleArray[i])
-
                     # Put into giant-matrix
                     p = self.particleArray[i] # Easier
                     self.x[i, t_step + 1] = p['x']

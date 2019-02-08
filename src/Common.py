@@ -17,7 +17,7 @@ def get_label(code: int) -> str:
 
 particle_dtype = np.dtype(
     {
-        'names': ['label', 'm', 'rho', 'p', 'c', 'drho', 'h', 'x', 'y', 'vx', 'vy', 'ax', 'ay'],
+        'names': ['label', 'm', 'rho', 'p', 'c', 'drho', 'h', 'x', 'y', 'vx', 'vy', 'ax', 'ay', 'x0', 'y0', 'vx0', 'vy0', 'rho0'],
         'formats': [
             np.int8,
             np.double,
@@ -31,7 +31,14 @@ particle_dtype = np.dtype(
             np.double,
             np.double,
             np.double,
-            np.double
+            np.double,
+
+            # Nought values.
+            np.double,
+            np.double,
+            np.double,
+            np.double,
+            np.double,
         ]
     }
 )
