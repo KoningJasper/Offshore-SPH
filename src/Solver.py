@@ -18,6 +18,7 @@ from src.Methods.Method import Method
 from src.Kernels.Kernel import Kernel
 from src.Integrators.Integrator import Integrator
 from src.ColorBar import ColorBar
+from src.Equations.Courant import Courant
 
 # Plotting
 import pyqtgraph as pg
@@ -43,7 +44,7 @@ class Solver:
     particleArray: np.array
     num_particles: int = 0
 
-    def __init__(self, method: Method, integrator: Integrator, kernel: Kernel, duration: float, dt: float, plot: bool):
+    def __init__(self, method: Method, integrator: Integrator, kernel: Kernel, duration: float, plot: bool):
         """
             Parameters
             ----------
@@ -66,17 +67,23 @@ class Solver:
         self.kernel     = kernel
         self.duration   = duration
         self.plot       = plot
-        
-        # TODO: Remove
-        self.dt = dt
 
     def addParticles(self, particles: List[Particle]):
         self.particles.extend(particles)
 
     def _convertParticles(self):
         """ Convert the particle classes to a numpy array. """
-        self.particleArray = np.array([(types[p.label], p.m, p.rho, p.p, 0, 0, 0, p.r[0], p.r[1], 0, 0, 0, 0, 0, 0, 0, 0, 0) for p in self.particles], dtype=particle_dtype)
-        self.num_particles = len(self.particleArray)
+        # Init empty array
+        self.num_particles = len(self.particles)
+        self.particleArray = np.zeros(self.num_particles, dtype=particle_dtype)
+        for i, p in enumerate(self.particles):
+            pA = self.particleArray[i]
+            pA['label'] = get_label_code(p.label)
+            pA['m'] = p.m
+            pA['rho'] = p.rho
+            pA['p'] = p.p
+            pA['x'] = p.r[0]
+            pA['y'] = p.r[1]
 
     def setup(self):
         """ Sets-up the solver, with the required parameters. """
@@ -84,6 +91,7 @@ class Solver:
         self._convertParticles()
 
         # Initial guess for the timestep.
+        self.dt = 1e-5;
         time_step_guess: int = math.ceil(self.duration / self.dt) + 1
 
         # Empty time arrays
@@ -96,10 +104,16 @@ class Solver:
         self.a = np.zeros([self.num_particles, 2, time_step_guess]) # Acceleration both x and y
 
         # Initialization
-        self.particleArray
+        # Calc h
+        r = np.transpose(np.vstack((self.particleArray['x'], self.particleArray['y'])))
+        dist = cdist(r, r, 'euclidean')
+        h: np.array = 1.3 * np.ma.masked_values(dist, 0.0, copy=False).min(1)
+        self.particleArray['h'] = h
+
         for i in range(self.num_particles):
             self.particleArray[i] = self.method.initialize(self.particleArray[i])
             self.particleArray[i]['p'] = self.method.compute_pressure(self.particleArray[i])
+            self.particleArray[i]['c'] = self.method.compute_speed_of_sound(self.particleArray[i])
 
         # Set 0-th time-step
         self.x[:, 0] = [p.r[0] for p in self.particles]
@@ -124,7 +138,7 @@ class Solver:
             # From self properties
             calcProps[near_i]['p']   = pA['p']
             calcProps[near_i]['m']   = pA['m']
-            calcProps[near_i]['c']   = pA['c']
+            calcProps[near_i]['c']   = self.method.compute_speed_of_sound(pA)
             calcProps[near_i]['rho'] = pA['rho']
 
             # Pre-calculated properties
@@ -146,6 +160,22 @@ class Solver:
 
         return calcProps
 
+    def _minTimeStep(self) -> float:
+        h_min = 10e10
+        c_max = -1e10
+        for p in self.particleArray:
+            # Only for fluids, the other ones don't move
+            if p['label'] != get_label_code('fluid'):
+                continue
+                
+            if p['h'] < h_min:
+                h_min = p['h']
+            if p['c'] > c_max:
+                c_max = p['c']
+
+        dt = Courant().calc(h_min, c_max)
+        return dt
+
     def _compute(self):
         """ Compute the accelerations, velocities, etc. """
         # TODO: Move this to separate class and function.
@@ -156,6 +186,11 @@ class Solver:
         # Distance of closest particle time 1.3
         # TODO: Move to separate class.
         h: np.array = 1.3 * np.ma.masked_values(dist, 0.0, copy=False).min(1)
+
+        # Re-set accelerations
+        self.particleArray['ax'] = 0.0
+        self.particleArray['ay'] = 0.0
+        self.particleArray['drho'] = 0.0
 
         # Pbar
         with tqdm(total=self.num_particles, desc='Acceleration eval', unit='particle', leave=False) as pbar:
@@ -213,7 +248,8 @@ class Solver:
         print('Started solving...')
         with tqdm(total=self.duration, desc='Time-stepping', unit='s') as tbar:
             while t < self.duration:
-                # TODO: Some initialization that resets the velocity and drho.
+                # Compute time step.
+                self.dt = self._minTimeStep()
 
                 if self.integrator.isMultiStage() == True:
                     # Start with eval
