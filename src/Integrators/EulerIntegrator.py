@@ -17,11 +17,12 @@ class EulerIntegrator(Integrator):
 
         # Only move fluid particles.
         if p['label'] == get_label_code('fluid'):
+            p['x'] = p['x'] + dt * p['vx'] + 0.5 * dt * dt * p['ax']
+            p['y'] = p['y'] + dt * p['vy'] + 0.5 * dt * dt * p['ay']
+
             p['vx'] = p['vx'] + dt * p['ax']
             p['vy'] = p['vy'] + dt * p['ay']
 
-            p['x'] = p['x'] + dt * p['vx'] + 0.5 * dt * dt * p['ax']
-            p['y'] = p['y'] + dt * p['vy'] + 0.5 * dt * dt * p['ay']
 
         p['rho'] = p['rho'] + dt * p['drho']
 
