@@ -9,7 +9,7 @@ import numpy as np
 from prettytable import PrettyTable
 from tqdm import tqdm
 from scipy.spatial.distance import cdist
-from numba import prange, jit
+from numba import prange, jit, njit
 from typing import List
 from time import perf_counter
 
@@ -53,6 +53,8 @@ class Solver:
     preTime: float = 0.0 # Prediction
     corTime: float = 0.0 # Correction
     propTime: float = 0.0 # calculation of properties.
+    propATime: float = 0.0
+    propKTime: float = 0.0
     storTime: float = 0.0 # storing properties
 
     def __init__(self, method: Method, integrator: Integrator, kernel: Kernel, duration: float, plot: bool):
@@ -140,35 +142,22 @@ class Solver:
 
     def _calcProps(self, i: int, near_arr: np.array, h_i: np.array, q_i: np.array, dist: np.array) -> np.array:
         start = perf_counter()
-        calcProps = np.zeros(len(near_arr), dtype=computed_dtype)
 
         # Fill the props
-        for near_i, pA in enumerate(self.particleArray[near_arr]):
-            # Get global index.
-            global_i = near_arr[near_i]
+        startA = perf_counter()
+        calcProps = _assignProps(i, self.particleArray, near_arr, h_i, q_i, dist)
+        self.propATime += perf_counter() - startA
 
-            # From self properties
-            calcProps[near_i]['p']   = pA['p']
-            calcProps[near_i]['m']   = pA['m']
-            calcProps[near_i]['c']   = self.method.compute_speed_of_sound(pA)
-            calcProps[near_i]['rho'] = pA['rho']
-
-            # Pre-calculated properties
-            calcProps[near_i]['h'] = h_i[global_i] # average h, precalculated
-            calcProps[near_i]['q'] = q_i[global_i] # dist / h, precalculated
-            calcProps[near_i]['r'] = dist[global_i] # distance, precalculated
-
-            # Positional values
-            calcProps[near_i]['x'] = self.particleArray[i]['x'] - pA['x']
-            calcProps[near_i]['y'] = self.particleArray[i]['y'] - pA['y']
-            calcProps[near_i]['vx'] = self.particleArray[i]['vx'] - pA['vx']
-            calcProps[near_i]['vy'] = self.particleArray[i]['vy'] - pA['vy']
-        # END_LOOP
+        # Speed of sound
+        for p in calcProps:
+            p['c'] = self.method.compute_speed_of_sound(p)
 
         # Kernel values
+        startK = perf_counter()
         calcProps['w'] = self.kernel.evaluate(calcProps['r'], calcProps['h'])
         calcProps['dw_x'] = self.kernel.gradient(calcProps['x'], calcProps['r'], calcProps['h'])
         calcProps['dw_y'] = self.kernel.gradient(calcProps['y'], calcProps['r'], calcProps['h'])
+        self.propKTime += perf_counter() - startK
 
         self.propTime += perf_counter() - start
         return calcProps
@@ -333,14 +322,19 @@ class Solver:
         # End-with
 
     def timing(self):
-        t = PrettyTable(['Name', 'Time [s]'])
-        t.add_row(['Continuity', self.conTime])
-        t.add_row(['Momentum', self.momTime])
-        t.add_row(['Properties', self.propTime])
-        t.add_row(['Neighbours', self.nbrTime])
-        t.add_row(['Storage', self.storTime])
-        t.add_row(['Predictor', self.preTime])
-        t.add_row(['Corrector', self.corTime])
+        total = sum([self.conTime, self.momTime, self.propTime, self.nbrTime, self.storTime, self.preTime, self.corTime])
+
+        t = PrettyTable(['Name', 'Time [s]', 'Percentage [%]'])
+        t.add_row(['Continuity', round(self.conTime, 3), round(self.conTime / total * 100, 2)])
+        t.add_row(['Momentum', round(self.momTime, 3), round(self.momTime / total * 100, 2)])
+        t.add_row(['Properties - Assigning', round(self.propATime, 3), round(self.propATime / total * 100, 2)])
+        t.add_row(['Properties - Kernel', round(self.propKTime, 3), round(self.propATime / total * 100, 2)])
+        t.add_row(['Properties - Total', round(self.propTime, 3), round(self.propTime / total * 100, 2)])
+        t.add_row(['Neighbours', round(self.nbrTime, 3), round(self.nbrTime / total * 100, 2)])
+        t.add_row(['Storage', round(self.storTime, 3), round(self.storTime / total * 100, 2)])
+        t.add_row(['Predictor', round(self.preTime, 3), round(self.preTime / total * 100, 2)])
+        t.add_row(['Corrector', round(self.corTime, 3), round(self.corTime / total * 100, 2)])
+        
         print(t)
 
     def save(self):
@@ -423,3 +417,35 @@ class Solver:
 
         # Cleanup export dir
         self.tempdir.cleanup()
+
+# Moved to outside of class for numba
+@njit
+def _assignProps(i: int, particleArray: np.array, near_arr: np.array, h_i: np.array, q_i: np.array, dist: np.array):
+    J = len(near_arr)
+
+    # Create empty array
+    calcProps = np.zeros(J, dtype=computed_dtype)
+
+    # Fill based on existing data.
+    for j in prange(J):
+        global_i = near_arr[j]
+        pA = particleArray[global_i]
+
+        # From self properties
+        calcProps[j]['p']   = pA['p']
+        calcProps[j]['m']   = pA['m']
+        #calcProps[near_i]['c']   = self.method.compute_speed_of_sound(pA)
+        calcProps[j]['rho'] = pA['rho']
+
+        # Pre-calculated properties
+        calcProps[j]['h'] = h_i[global_i] # average h, precalculated
+        calcProps[j]['q'] = q_i[global_i] # dist / h, precalculated
+        calcProps[j]['r'] = dist[global_i] # distance, precalculated
+
+        # Positional values
+        calcProps[j]['x'] = particleArray[i]['x'] - pA['x']
+        calcProps[j]['y'] = particleArray[i]['y'] - pA['y']
+        calcProps[j]['vx'] = particleArray[i]['vx'] - pA['vx']
+        calcProps[j]['vy'] = particleArray[i]['vy'] - pA['vy']
+    # END_LOOP
+    return calcProps
