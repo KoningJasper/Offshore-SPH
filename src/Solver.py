@@ -6,10 +6,12 @@ import math
 
 # Other packages
 import numpy as np
+from prettytable import PrettyTable
 from tqdm import tqdm
 from scipy.spatial.distance import cdist
 from numba import prange, jit
 from typing import List
+from time import perf_counter
 
 # Own components
 from src.Common import particle_dtype, computed_dtype, types, get_label_code
@@ -43,6 +45,15 @@ class Solver:
     particles: List[Particle] = []
     particleArray: np.array
     num_particles: int = 0
+
+    # Timing information
+    nbrTime: float = 0.0 # Neighbours
+    momTime: float = 0.0 # Momentum
+    conTime: float = 0.0 # Continuity
+    preTime: float = 0.0 # Prediction
+    corTime: float = 0.0 # Correction
+    propTime: float = 0.0 # calculation of properties.
+    storTime: float = 0.0 # storing properties
 
     def __init__(self, method: Method, integrator: Integrator, kernel: Kernel, duration: float, plot: bool):
         """
@@ -128,6 +139,7 @@ class Solver:
         print('Setup complete.')
 
     def _calcProps(self, i: int, near_arr: np.array, h_i: np.array, q_i: np.array, dist: np.array) -> np.array:
+        start = perf_counter()
         calcProps = np.zeros(len(near_arr), dtype=computed_dtype)
 
         # Fill the props
@@ -158,6 +170,7 @@ class Solver:
         calcProps['dw_x'] = self.kernel.gradient(calcProps['x'], calcProps['r'], calcProps['h'])
         calcProps['dw_y'] = self.kernel.gradient(calcProps['y'], calcProps['r'], calcProps['h'])
 
+        self.propTime += perf_counter() - start
         return calcProps
 
     def _minTimeStep(self) -> float:
@@ -167,7 +180,7 @@ class Solver:
             # Only for fluids, the other ones don't move
             if p['label'] != get_label_code('fluid'):
                 continue
-                
+
             if p['h'] < h_min:
                 h_min = p['h']
             if p['c'] > c_max:
@@ -176,16 +189,34 @@ class Solver:
         dt = Courant().calc(h_min, c_max)
         return dt
 
-    def _compute(self):
-        """ Compute the accelerations, velocities, etc. """
-        # TODO: Move this to separate class and function.
+    def _nbrs(self):
+        start = perf_counter()
+
         # Distance and neighbourhood
         r = np.transpose(np.vstack((self.particleArray['x'], self.particleArray['y'])))
         dist = cdist(r, r, 'euclidean')
 
         # Distance of closest particle time 1.3
-        # TODO: Move to separate class.
         h: np.array = 1.3 * np.ma.masked_values(dist, 0.0, copy=False).min(1)
+
+        self.nbrTime += perf_counter() - start
+        return (r, dist, h)
+
+    def _findNbrs(self, i: int, h: np.array, dist: np.array):
+        start = perf_counter()
+
+        # Query neighbours
+        h_i: np.array = 0.5 * (h[i] + h[:])
+        q_i: np.array = dist[i, :] / (h_i)
+        near_arr: np.array = np.flatnonzero(np.argwhere(q_i <= 3.0)) # Find neighbours and remove self (0).
+
+        self.nbrTime += perf_counter() - start
+        return (h_i, q_i, near_arr)
+
+    def _compute(self):
+        """ Compute the accelerations, velocities, etc. """
+        # Neighbourhood
+        (r, dist, h) = self._nbrs()
 
         # Re-set accelerations
         self.particleArray['ax'] = 0.0
@@ -196,11 +227,8 @@ class Solver:
         with tqdm(total=self.num_particles, desc='Acceleration eval', unit='particle', leave=False) as pbar:
             # Acceleration and force loop
             for i in range(self.num_particles):
-                # Query neighbours
-                # TODO: Move to separate class, do without full enumeration.
-                h_i: np.array = 0.5 * (h[i] + h[:])
-                q_i: np.array = dist[i, :] / (h_i)
-                near_arr: np.array = np.flatnonzero(np.argwhere(q_i <= 3.0)) # Find neighbours and remove self (0).
+                # Find near neighbours and their h and q
+                (h_i, q_i, near_arr) = self._findNbrs(i, h, dist)
 
                 # Skip if got no neighbours, early exit.
                 # Keep same properties, no acceleration.
@@ -220,12 +248,18 @@ class Solver:
                 p['p'] = self.method.compute_pressure(p)
                 
                 # Continuity
+                start = perf_counter()
                 p['drho'] = self.method.compute_density_change(p, calcProps)
+                self.conTime += perf_counter() - start
 
                 # Momentum
                 if p['label'] == get_label_code('fluid'):
+                    start = perf_counter()
+
                     [p['ax'], p['ay']] = self.method.compute_acceleration(p, calcProps)
                     [p['vx'], p['vy']] = self.method.compute_velocity(p, calcProps)
+
+                    self.momTime += perf_counter() - start
                 # end fluid
 
                 # Increment with one particle
@@ -256,17 +290,22 @@ class Solver:
                     self._compute()
                 
                 # Predict
+                start = perf_counter()
                 for p in self.particleArray:
                     p = self.integrator.predict(self.dt, p)
+                self.preTime += perf_counter() - start
 
                 # Compute the accelerations
                 self._compute()
 
                 # Correct
+                start = perf_counter()
                 for p in self.particleArray:
                     p = self.integrator.correct(self.dt, p)
+                self.corTime += perf_counter() - start
 
-                # Integration loop
+                # Store-loop
+                start = perf_counter()
                 for i in range(self.num_particles):
                     # Put into giant-matrix
                     p = self.particleArray[i] # Easier
@@ -277,6 +316,7 @@ class Solver:
                     self.v[i, :, t_step + 1] = np.array([p['vx'], p['vy']])
                     self.a[i, :, t_step + 1] = np.array([p['ax'], p['ay']])
                     self.drho[i, t_step + 1] = p['drho']
+                self.storTime += perf_counter() - start
 
                 # End integration-loop
                 t += self.dt
@@ -291,6 +331,17 @@ class Solver:
                 tbar.update(self.dt)
             # End while
         # End-with
+
+    def timing(self):
+        t = PrettyTable(['Name', 'Time [s]'])
+        t.add_row(['Continuity', self.conTime])
+        t.add_row(['Momentum', self.momTime])
+        t.add_row(['Properties', self.propTime])
+        t.add_row(['Neighbours', self.nbrTime])
+        t.add_row(['Storage', self.storTime])
+        t.add_row(['Predictor', self.preTime])
+        t.add_row(['Corrector', self.corTime])
+        print(t)
 
     def save(self):
         """

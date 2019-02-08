@@ -72,6 +72,9 @@ def main():
     # Run it!
     solver.solve()
 
+    # Output timing
+    solver.timing()
+
     # Output
     solver.save()
 
