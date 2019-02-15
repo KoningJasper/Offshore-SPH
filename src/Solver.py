@@ -267,7 +267,7 @@ class Solver:
                     momstart = perf_counter()
 
                     [p['ax'], p['ay']] = self.method.compute_acceleration(p, calcProps)
-                    [p['vx'], p['vy']] = self.method.compute_velocity(p, calcProps)
+                    [p['vx'], p['vy'], p['xsphx'], p['xsphy']] = self.method.compute_velocity(p, calcProps)
 
                     self.momTime += perf_counter() - momstart
                 # end fluid

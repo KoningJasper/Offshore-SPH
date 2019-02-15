@@ -9,6 +9,9 @@ class WCSPH(Method):
     useXSPH: bool
 
     def __init__(self, height: float, rho0: float, num_particles: int, useXSPH: bool = True):
+        """
+            useXSPH has to be enabled in both the integrator and the method!
+        """
         # Assign primary variables.
         self.height  = height
         self.rho0    = rho0
@@ -58,10 +61,11 @@ class WCSPH(Method):
             # Compute XSPH Term
             [xsph_x, xsph_y] = self.xsph.calc(p['rho'], comp['m'], comp['rho'], vij, comp['w'])
 
-            # Calc new velocity
-            return [p['vx'] + xsph_x, p['vy'] + xsph_y]
+            # Velocity stays the same, xsph correction is changed.
+            return [p['vx'], p['vy'], p['vx'] + xsph_x, p['vy'] + xsph_y]
         else:
-            return [p['vx'], p['vy']]
+            # Velocity stays the same
+            return [p['vx'], p['vy'], 0.0, 0.0]
 
     # override
     def compute_density_change(self, p: np.array, comp: np.array) -> float:

@@ -9,7 +9,15 @@ class PEC(Integrator):
     The predictor-corrector as described by Monaghan in his 1992 paper.
     It does not take the damping, gamma, into account.
     """
-    seq: List[Tuple[str, str]] = [('x', 'vx'), ('y', 'vy'), ('vx', 'ax'), ('vy', 'ay'), ('rho', 'drho')]
+
+    seq: List[Tuple[str, str]]
+
+    def __init__(self, useXSPH: bool = True):
+        if useXSPH == True:
+            # When using XSPH use xsph for moving instead of vx, vy
+            self.seq = [('x', 'xsphx'), ('y', 'xsphy'), ('vx', 'ax'), ('vy', 'ay'), ('rho', 'drho')]
+        else:
+            self.seq = [('x', 'vx'), ('y', 'vy'), ('vx', 'ax'), ('vy', 'ay'), ('rho', 'drho')]
 
     def isMultiStage(self) -> bool:
         return False

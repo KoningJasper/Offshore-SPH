@@ -17,7 +17,7 @@ def _loop(eps, rho_i, m_j, rho_j, vij, wij):
     # vij is 2D.
     xsph = [0.0, 0.0]
     J = len(m_j)
-    for j in range(J):
+    for j in prange(J):
         rho_ij = 0.5 * (rho_i + rho_j[j])
         fac = - eps * m_j[j] * wij[j] / rho_ij
         xsph[0] += fac * vij[j, 0]
