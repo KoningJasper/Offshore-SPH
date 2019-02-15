@@ -51,6 +51,7 @@ def create_particles(N: int, mass: float):
 def main():
     # Main parameters
     N = 10; rho0 = 1000.0; duration = 1.0
+    XSPH = False; height = 25.0; plot = True
 
     # Create some particles
     dA = 25 * 25 / N ** 2 # Area per particle. [m^2]
@@ -59,9 +60,9 @@ def main():
 
     # Create the solver
     kernel = Gaussian()
-    method = WCSPH(height=25.0, rho0=rho0, num_particles=len(particles))
-    integrator = PEC()
-    solver = Solver(method, integrator, kernel, duration, plot=True)
+    method = WCSPH(height=height, rho0=rho0, num_particles=len(particles), useXSPH=XSPH)
+    integrator = PEC(useXSPH=XSPH)
+    solver = Solver(method, integrator, kernel, duration, plot=plot)
 
     # Add the particles
     solver.addParticles(particles)
