@@ -9,7 +9,6 @@ cache: pip
 install:
   - pip install -r requirements.txt
   - pip install codecov
-  - pip install codacy-coverage
 
 # command to run tests
 script:
@@ -17,7 +16,3 @@ script:
 
   # Upload coverage data to codecov
   - codecov
-
-  # Upload to codacy
-  - coverage xml
-  - python-codacy-coverage -r coverage.xml
