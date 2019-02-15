@@ -61,7 +61,7 @@ def main():
     kernel = Gaussian()
     method = WCSPH(height=25.0, rho0=rho0, num_particles=len(particles))
     integrator = PEC()
-    solver = Solver(method, integrator, kernel, duration, plot=False)
+    solver = Solver(method, integrator, kernel, duration, plot=True)
 
     # Add the particles
     solver.addParticles(particles)

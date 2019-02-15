@@ -47,8 +47,12 @@ class Solver:
     num_particles: int = 0
 
     # Timing information
+    stepTime: float = 0.0
     nbrHTime: float = 0.0
     nbrFTime: float = 0.0 
+    comTime: float = 0.0
+    eosTime: float = 0.0
+    cTime: float = 0.0
     momTime: float = 0.0 # Momentum
     conTime: float = 0.0 # Continuity
     preTime: float = 0.0 # Prediction
@@ -57,6 +61,10 @@ class Solver:
     propATime: float = 0.0
     propKTime: float = 0.0
     storTime: float = 0.0 # storing properties
+    expTime: float = 0.0 # Exporting time
+
+    t_step: int
+    dts: List[float] = []
 
     def __init__(self, method: Method, integrator: Integrator, kernel: Kernel, duration: float, plot: bool):
         """
@@ -130,10 +138,10 @@ class Solver:
             self.particleArray[i]['c'] = self.method.compute_speed_of_sound(self.particleArray[i])
 
         # Set 0-th time-step
-        self.x[:, 0] = [p.r[0] for p in self.particles]
-        self.y[:, 0] = [p.r[1] for p in self.particles]
-        self.c[:, 0] = [p.p for p in self.particles]
-        self.u[:, 0] = [p.rho for p in self.particles]
+        self.x[:, 0] = [p['x'] for p in self.particleArray]
+        self.y[:, 0] = [p['y'] for p in self.particleArray]
+        self.c[:, 0] = [p['p'] for p in self.particleArray]
+        self.u[:, 0] = [p['rho'] for p in self.particleArray]
 
         if self.plot == True:
             self.init_plot()
@@ -164,6 +172,8 @@ class Solver:
         return calcProps
 
     def _minTimeStep(self) -> float:
+        start = perf_counter()
+
         h_min = 10e10
         c_max = -1e10
         for p in self.particleArray:
@@ -176,7 +186,9 @@ class Solver:
             if p['c'] > c_max:
                 c_max = p['c']
 
-        dt = Courant().calc(h_min, c_max)
+        dt = Courant().calc(h_min, c_max) * (1 / 1.3)
+        self.dts.append(dt)
+        self.stepTime += perf_counter() - start
         return dt
 
     def _nbrs(self):
@@ -204,8 +216,13 @@ class Solver:
 
     def _compute(self):
         """ Compute the accelerations, velocities, etc. """
+        start = perf_counter()
+
         # Neighbourhood
         (r, dist, h) = self._nbrs()
+
+        # Set h
+        self.particleArray['h'] = h
 
         # Re-set accelerations
         self.particleArray['ax'] = 0.0
@@ -231,30 +248,36 @@ class Solver:
                 p = self.particleArray[i]
 
                 # Calc speed of sound.
+                cStart = perf_counter()
                 p['c'] = self.method.compute_speed_of_sound(p)
+                self.cTime += perf_counter() - cStart
 
                 # Compute pressure, EOS
+                eosStart = perf_counter()
                 p['p'] = self.method.compute_pressure(p)
+                self.eosTime += perf_counter() - eosStart
                 
                 # Continuity
-                start = perf_counter()
+                constart = perf_counter()
                 p['drho'] = self.method.compute_density_change(p, calcProps)
-                self.conTime += perf_counter() - start
+                self.conTime += perf_counter() - constart
 
                 # Momentum
                 if p['label'] == get_label_code('fluid'):
-                    start = perf_counter()
+                    momstart = perf_counter()
 
                     [p['ax'], p['ay']] = self.method.compute_acceleration(p, calcProps)
                     [p['vx'], p['vy']] = self.method.compute_velocity(p, calcProps)
 
-                    self.momTime += perf_counter() - start
+                    self.momTime += perf_counter() - momstart
                 # end fluid
 
                 # Increment with one particle
                 pbar.update(1)
             # end acc. loop
         # end with pbar
+
+        self.comTime += perf_counter() - start
 
     def solve(self):
         """
@@ -312,32 +335,42 @@ class Solver:
                 t_step += 1
 
                 # Update and export plot
+                sExp: float = perf_counter()
                 if self.plot == True:
                     self.update_frame(t_step)
                     self.export(t_step)
+                self.expTime += perf_counter() - sExp
 
                 # Update tbar
                 tbar.update(self.dt)
             # End while
         # End-with
 
+        self.t_step = t_step
+
     def timing(self):
-        total = sum([self.conTime, self.momTime, self.propTime, self.nbrFTime, self.nbrHTime, self.storTime, self.preTime, self.corTime])
+        total = sum([self.storTime, self.preTime, self.corTime, self.expTime, self.comTime])
 
         nbrTime = self.nbrFTime + self.nbrHTime
 
         t = PrettyTable(['Name', 'Time [s]', 'Percentage [%]'])
-        t.add_row(['Continuity', round(self.conTime, 3), round(self.conTime / total * 100, 2)])
-        t.add_row(['Momentum', round(self.momTime, 3), round(self.momTime / total * 100, 2)])
+        t.add_row(['Compute - EOS', round(self.eosTime, 3), round(self.eosTime / total * 100, 2)])
+        t.add_row(['Compute - Speed of Sound', round(self.cTime, 3), round(self.cTime / total * 100, 2)])
+        t.add_row(['Compute - Continuity', round(self.conTime, 3), round(self.conTime / total * 100, 2)])
+        t.add_row(['Compute - Momentum', round(self.momTime, 3), round(self.momTime / total * 100, 2)])
+        t.add_row(['Compute - Total', round(self.comTime, 3), round(self.comTime / total * 100, 2)])
         t.add_row(['Properties - Assigning', round(self.propATime, 3), round(self.propATime / total * 100, 2)])
-        t.add_row(['Properties - Kernel', round(self.propKTime, 3), round(self.propATime / total * 100, 2)])
+        t.add_row(['Properties - Kernel', round(self.propKTime, 3), round(self.propKTime / total * 100, 2)])
         t.add_row(['Properties - Total', round(self.propTime, 3), round(self.propTime / total * 100, 2)])
         t.add_row(['Neighbours - Hood', round(self.nbrHTime, 3), round(self.nbrHTime / total * 100, 2)])
         t.add_row(['Neighbours - Find', round(self.nbrFTime, 3), round(self.nbrFTime / total * 100, 2)])
         t.add_row(['Neighbours - Total', round(nbrTime, 3), round(nbrTime / total * 100, 2)])
+        t.add_row(['Calc. time step', round(self.stepTime, 3), round(self.stepTime / total * 100, 2)])
         t.add_row(['Storage', round(self.storTime, 3), round(self.storTime / total * 100, 2)])
         t.add_row(['Predictor', round(self.preTime, 3), round(self.preTime / total * 100, 2)])
         t.add_row(['Corrector', round(self.corTime, 3), round(self.corTime / total * 100, 2)])
+        t.add_row(['Exporting - Frames', round(self.expTime, 3), round(self.expTime / total * 100, 2)])
+        t.add_row(['Total - Measured', round(total, 3), 100])
 
         print(t)
 
@@ -353,6 +386,10 @@ class Solver:
         # Export compressed numpy-arrays
         np.savez_compressed(f'{sys.path[0]}/export', x=self.x, y=self.y, p=self.c, rho=self.u, v=self.v, a=self.a, drho=self.drho)
         print(f'Exported arrays to: "{sys.path[0]}/export.npz".')
+
+        # Export dts
+        np.savez_compressed(f'{sys.path[0]}/dts', dts=np.array(self.dts))
+        print(f'Exported dts to: "{sys.path[0]}/export.npz".')
 
     # Plotting functions
     def export(self, frame: int):
@@ -371,6 +408,8 @@ class Solver:
 
     def init_plot(self):
         """ Initialize the plot. """
+        start: float = perf_counter()
+
         # use less ink
         pg.setConfigOption('background', 'w')
         pg.setConfigOption('foreground', 'k')
@@ -399,7 +438,7 @@ class Solver:
         self.cm = pg.ColorMap(stops, np.array(colors))
         
         # make colorbar, placing by hand
-        cb = ColorBar(self.cm, 10, 200, label='Pressure [kPa]')#, [0., 0.5, 1.0])
+        cb = ColorBar(cmap=self.cm, width=10, height=200, label='Pressure [kPa]')
         self.pw.scene().addItem(cb)
         cb.translate(610.0, 90.0)
 
@@ -412,12 +451,15 @@ class Solver:
         print(f'Exporting frames to directory: {self.tempdir.name}')
         self.export(0)
 
+        # Timing
+        self.expTime += perf_counter() - start
+
     def export_mp4(self):
         # Export to mp4
-        fps = np.round(0.5 / self.dt) # Frames per second
-        subprocess.run(f'ffmpeg -hide_banner -loglevel panic -y -r {fps} -i "{self.tempdir.name}/export_%06d.png" -c:v libx264 -vf fps=10 -pix_fmt yuv420p "{sys.path[0]}/export.mp4"')
+        fps = np.round(self.t_step / self.duration) # Frames per second
+        subprocess.run(f'ffmpeg -hide_banner -loglevel panic -y -i "{self.tempdir.name}\\export_%06d.png" -c:v libx264 -vf fps={fps} -pix_fmt yuv420p "{sys.path[0]}\\export.mp4"')
         print('Export complete!')
-        print(f'Exported to "{sys.path[0]}/export.mp4".')
+        print(f'Exported to "{sys.path[0]}\\export.mp4".')
 
         # Cleanup export dir
         self.tempdir.cleanup()
