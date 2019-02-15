@@ -46,12 +46,18 @@ def create_particles(N: int, mass: float):
         particles.append(Particle('boundary', xv2[i], yv3[i], mass_b, rho_b))
         particles.append(Particle('boundary', xv2[i] - r0, yv3[i] - r0 / 2, mass_b, rho_b))
         
+    # Temp-Boundary
+    xvt = np.zeros(len(yv3)) + 25 - x_min
+    for i in range(len(yv3)):
+        particles.append(Particle('temp-boundary', xvt[i], yv3[i], mass_b, rho_b))
+        particles.append(Particle('temp-boundary', xvt[i] + r0, yv3[i] - r0 / 2, mass_b, rho_b))
+
     return particles
 
 def main():
     # Main parameters
-    N = 10; rho0 = 1000.0; duration = 1.0
-    XSPH = False; height = 25.0; plot = True
+    N = 20; rho0 = 1000.0; duration = 5.0
+    XSPH = True; height = 25.0; plot = True
 
     # Create some particles
     dA = 25 * 25 / N ** 2 # Area per particle. [m^2]

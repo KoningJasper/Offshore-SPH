@@ -66,6 +66,8 @@ class Solver:
     t_step: int
     dts: List[float] = []
 
+    damping: float = 0.05 # Damping factor
+
     def __init__(self, method: Method, integrator: Integrator, kernel: Kernel, duration: float, plot: bool):
         """
             Parameters
@@ -171,6 +173,7 @@ class Solver:
         self.propTime += perf_counter() - start
         return calcProps
 
+    @jit
     def _minTimeStep(self) -> float:
         start = perf_counter()
 
@@ -191,6 +194,7 @@ class Solver:
         self.stepTime += perf_counter() - start
         return dt
 
+    @jit
     def _nbrs(self):
         start = perf_counter()
 
@@ -304,7 +308,7 @@ class Solver:
                 # Predict
                 start = perf_counter()
                 for p in self.particleArray:
-                    p = self.integrator.predict(self.dt, p)
+                    p = self.integrator.predict(self.dt, p, self.damping)
                 self.preTime += perf_counter() - start
 
                 # Compute the accelerations
@@ -313,7 +317,7 @@ class Solver:
                 # Correct
                 start = perf_counter()
                 for p in self.particleArray:
-                    p = self.integrator.correct(self.dt, p)
+                    p = self.integrator.correct(self.dt, p, self.damping)
                 self.corTime += perf_counter() - start
 
                 # Store-loop
@@ -331,18 +335,34 @@ class Solver:
                 self.storTime += perf_counter() - start
 
                 # End integration-loop
-                t += self.dt
+                if self.damping == 0:
+                    # Only move forward if damping
+                    t += self.dt
                 t_step += 1
+
+                if t_step >= 100:
+                    # Stop damping after 100-th time steps.
+                    self.damping = 0.0
+
+                    # Remove temp-boundary
+                    inds = []
+                    for i in range(self.num_particles):
+                        p = self.particleArray[i]
+                        if p['label'] == get_label_code('temp-boundary'):
+                            inds.append(i)
+                    self.particleArray = np.delete(self.particleArray, np.array(inds), axis=0)
+                    self.num_particles = len(self.particleArray)
 
                 # Update and export plot
                 sExp: float = perf_counter()
                 if self.plot == True:
-                    self.update_frame(t_step)
+                    self.update_frame(t_step, t)
                     self.export(t_step)
                 self.expTime += perf_counter() - sExp
 
                 # Update tbar
-                tbar.update(self.dt)
+                if self.damping == 0:
+                    tbar.update(self.dt)
             # End while
         # End-with
 
@@ -354,17 +374,17 @@ class Solver:
         nbrTime = self.nbrFTime + self.nbrHTime
 
         t = PrettyTable(['Name', 'Time [s]', 'Percentage [%]'])
-        t.add_row(['Compute - EOS', round(self.eosTime, 3), round(self.eosTime / total * 100, 2)])
-        t.add_row(['Compute - Speed of Sound', round(self.cTime, 3), round(self.cTime / total * 100, 2)])
-        t.add_row(['Compute - Continuity', round(self.conTime, 3), round(self.conTime / total * 100, 2)])
-        t.add_row(['Compute - Momentum', round(self.momTime, 3), round(self.momTime / total * 100, 2)])
-        t.add_row(['Compute - Total', round(self.comTime, 3), round(self.comTime / total * 100, 2)])
         t.add_row(['Properties - Assigning', round(self.propATime, 3), round(self.propATime / total * 100, 2)])
         t.add_row(['Properties - Kernel', round(self.propKTime, 3), round(self.propKTime / total * 100, 2)])
         t.add_row(['Properties - Total', round(self.propTime, 3), round(self.propTime / total * 100, 2)])
         t.add_row(['Neighbours - Hood', round(self.nbrHTime, 3), round(self.nbrHTime / total * 100, 2)])
         t.add_row(['Neighbours - Find', round(self.nbrFTime, 3), round(self.nbrFTime / total * 100, 2)])
         t.add_row(['Neighbours - Total', round(nbrTime, 3), round(nbrTime / total * 100, 2)])
+        t.add_row(['Compute - EOS', round(self.eosTime, 3), round(self.eosTime / total * 100, 2)])
+        t.add_row(['Compute - Speed of Sound', round(self.cTime, 3), round(self.cTime / total * 100, 2)])
+        t.add_row(['Compute - Continuity', round(self.conTime, 3), round(self.conTime / total * 100, 2)])
+        t.add_row(['Compute - Momentum', round(self.momTime, 3), round(self.momTime / total * 100, 2)])
+        t.add_row(['Compute - Total', round(self.comTime, 3), round(self.comTime / total * 100, 2)])
         t.add_row(['Calc. time step', round(self.stepTime, 3), round(self.stepTime / total * 100, 2)])
         t.add_row(['Storage', round(self.storTime, 3), round(self.storTime / total * 100, 2)])
         t.add_row(['Predictor', round(self.preTime, 3), round(self.preTime / total * 100, 2)])
@@ -401,9 +421,8 @@ class Solver:
         frame_str = "{:06}".format(frame)
         self.exporter.export(f'{self.tempdir.name}/export_{frame_str}.png')
 
-    def update_frame(self, frame: int) -> None:
+    def update_frame(self, frame: int, time: float) -> None:
         self.pl.setData(x=self.x[:, frame], y=self.y[:, frame], symbolBrush=self.cm.map(self.c[:, frame], 'qcolor'), symbolSize=self.sZ)
-        time: int = frame * self.dt
         self.txtItem.setText(f't = {time:f} [s]')
 
     def init_plot(self):
@@ -456,8 +475,9 @@ class Solver:
 
     def export_mp4(self):
         # Export to mp4
-        fps = np.round(self.t_step / self.duration) # Frames per second
-        subprocess.run(f'ffmpeg -hide_banner -loglevel panic -y -i "{self.tempdir.name}\\export_%06d.png" -c:v libx264 -vf fps={fps} -pix_fmt yuv420p "{sys.path[0]}\\export.mp4"')
+        fps = np.round(self.t_step / self.duration / 8) # Frames per second
+        subprocess.run(f'ffmpeg -hide_banner -loglevel panic -y -framerate {fps} -i "{self.tempdir.name}\\export_%06d.png" -s:v 700x500 -c:v libx264 \
+-profile:v high -crf 20 -pix_fmt yuv420p {sys.path[0]}\\export.mp4"')
         print('Export complete!')
         print(f'Exported to "{sys.path[0]}\\export.mp4".')
 
