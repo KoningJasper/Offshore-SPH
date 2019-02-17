@@ -7,7 +7,7 @@ import numpy as np
 from src.Solver import Solver
 from src.Particle import Particle
 from src.Methods.WCSPH import WCSPH
-from src.Kernels.Gaussian import Gaussian
+from src.Kernels.CubicSpline import CubicSpline
 from src.Integrators.PEC import PEC
 
 def create_particles(N: int, mass: float):
@@ -57,7 +57,7 @@ def create_particles(N: int, mass: float):
 def main():
     # Main parameters
     N = 10; rho0 = 1000.0; duration = 0.5
-    XSPH = True; height = 25.0; plot = True
+    XSPH = True; height = 25.0; plot = False
 
     # Create some particles
     dA = 25 * 25 / N ** 2 # Area per particle. [m^2]
@@ -65,7 +65,7 @@ def main():
     particles = create_particles(N, mass)
 
     # Create the solver
-    kernel = Gaussian()
+    kernel = CubicSpline()
     method = WCSPH(height=height, rho0=rho0, num_particles=len(particles), useXSPH=XSPH)
     integrator = PEC(useXSPH=XSPH)
     solver = Solver(method, integrator, kernel, duration, plot=plot)

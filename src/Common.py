@@ -10,6 +10,16 @@ class ParticleType(enum.IntEnum):
     Boundary = 1,
     TempBoundary = 2
 
+def get_label_code(label: str):
+    if label == 'fluid':
+        return ParticleType.Fluid
+    elif label == 'boundary':
+        return ParticleType.Boundary
+    elif label == 'temp-boundary':
+        return ParticleType.TempBoundary
+    else:
+        raise Exception('Argument out of range')
+
 particle_dtype = np.dtype(
     {
         'names': ['label', 'm', 'rho', 'p', 'c', 'drho', 'h', 'x', 'y', 'vx', 'vy', 'ax', 'ay', 'xsphx', 'xsphy', 'x0', 'y0', 'vx0', 'vy0', 'rho0'],

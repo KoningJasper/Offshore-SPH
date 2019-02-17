@@ -3,7 +3,7 @@ from typing import List
 from numba import njit, prange
 
 @njit(fastmath=True, parallel=True)
-def XSPH(epsilon, rho_i, m_j, rho_j, vij, wij):
+def XSPH(epsilon, p, comp):
     """
         XSPH Correction
 
@@ -13,26 +13,19 @@ def XSPH(epsilon, rho_i, m_j, rho_j, vij, wij):
 
         epsilon: scaling parameter for XSPH correction, normally 0.5
 
-        rho_i: particle self density.
+        p: self-array
 
-        m_j: masses of other particles.
-
-        rho_j: densities of other particles.
-
-        vij: Speed difference between self and other particles. (2D)
-
-        wij: Kernel values of other particles.
-
+        comp: Other particles
 
         Returns
         -------
         A list containing [xsph_x, xsph_y]
     """
     xsph = [0.0, 0.0]
-    J = len(m_j)
-    for j in prange(J):
-        rho_ij = 0.5 * (rho_i + rho_j[j])
-        fac = - epsilon * m_j[j] * wij[j] / rho_ij
-        xsph[0] += fac * vij[j, 0]
-        xsph[1] += fac * vij[j, 1]
+    J = len(comp)
+    for j in range(J):
+        rho_ij = 0.5 * (p['rho'] + comp[j]['rho'])
+        fac = - epsilon * comp[j]['m'] * comp[j]['w'] / rho_ij
+        xsph[0] += fac * comp[j]['vx']
+        xsph[1] += fac * comp[j]['vy']
     return xsph

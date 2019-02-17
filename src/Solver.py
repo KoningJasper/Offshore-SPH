@@ -6,6 +6,7 @@ import math
 
 # Other packages
 import numpy as np
+from colorama import Fore, Style
 from prettytable import PrettyTable
 from tqdm import tqdm
 from scipy.spatial.distance import cdist
@@ -14,7 +15,7 @@ from typing import List
 from time import perf_counter
 
 # Own components
-from src.Common import particle_dtype, computed_dtype, types, get_label_code
+from src.Common import particle_dtype, computed_dtype, ParticleType, get_label_code
 from src.Particle import Particle
 from src.Methods.Method import Method
 from src.Kernels.Kernel import Kernel
@@ -47,6 +48,7 @@ class Solver:
     num_particles: int = 0
 
     # Timing information
+    totTime: float = 0.0
     stepTime: float = 0.0
     nbrHTime: float = 0.0
     nbrFTime: float = 0.0 
@@ -149,7 +151,7 @@ class Solver:
             self.init_plot()
             self.export(0)
 
-        print('Setup complete.')
+        print(f'{Fore.GREEN}Setup complete.{Style.RESET_ALL}')
 
     def _calcProps(self, i: int, near_arr: np.array, h_i: np.array, q_i: np.array, dist: np.array) -> np.array:
         start = perf_counter()
@@ -160,8 +162,7 @@ class Solver:
         self.propATime += perf_counter() - startA
 
         # Speed of sound
-        for p in calcProps:
-            p['c'] = self.method.compute_speed_of_sound(p)
+        self.particleArray['p'] = self.method.compute_speed_of_sound(self.particleArray)
 
         # Kernel values
         startK = perf_counter()
@@ -176,20 +177,7 @@ class Solver:
     @jit
     def _minTimeStep(self) -> float:
         start = perf_counter()
-
-        h_min = 10e10
-        c_max = -1e10
-        for p in self.particleArray:
-            # Only for fluids, the other ones don't move
-            if p['label'] != get_label_code('fluid'):
-                continue
-
-            if p['h'] < h_min:
-                h_min = p['h']
-            if p['c'] > c_max:
-                c_max = p['c']
-
-        dt = Courant().calc(h_min, c_max) * (1 / 1.3)
+        dt = Courant(0.4, self.particleArray['h'], self.particleArray['c']) * (1 / 1.3)
         self.dts.append(dt)
         self.stepTime += perf_counter() - start
         return dt
@@ -292,11 +280,16 @@ class Solver:
             raise Exception('No or invalid particles set!')
 
         # Keep integrating until simulation duration is reached.
+
+        start_all = perf_counter()
+
         # TODO: Change giant-matrix size if wrong due to different time-steps.
         t_step: int = 0   # Step
         t: float    = 0.0 # Current time
         print('Started solving...')
-        with tqdm(total=self.duration, desc='Time-stepping', unit='s') as tbar:
+        settleSteps = 100
+        sbar = tqdm(total=settleSteps, desc='Settling', unit='steps', leave=False)
+        with tqdm(total=self.duration, desc='Time-stepping', unit='s', leave=False) as tbar:
             while t < self.duration:
                 # Compute time step.
                 self.dt = self._minTimeStep()
@@ -307,8 +300,7 @@ class Solver:
                 
                 # Predict
                 start = perf_counter()
-                for p in self.particleArray:
-                    p = self.integrator.predict(self.dt, p, self.damping)
+                self.particleArray = self.integrator.predict(self.dt, self.particleArray, self.damping)
                 self.preTime += perf_counter() - start
 
                 # Compute the accelerations
@@ -316,8 +308,7 @@ class Solver:
 
                 # Correct
                 start = perf_counter()
-                for p in self.particleArray:
-                    p = self.integrator.correct(self.dt, p, self.damping)
+                self.particleArray = self.integrator.correct(self.dt, self.particleArray, self.damping)
                 self.corTime += perf_counter() - start
 
                 # Store-loop
@@ -340,7 +331,12 @@ class Solver:
                     t += self.dt
                 t_step += 1
 
-                if t_step >= 100:
+                if t_step > settleSteps:
+                    if self.damping > 0:
+                        sbar.update(n=1)
+                        sbar.close()
+                        print(f'{Fore.GREEN}Settling Complete.{Style.RESET_ALL}')
+                        
                     # Stop damping after 100-th time steps.
                     self.damping = 0.0
 
@@ -348,7 +344,7 @@ class Solver:
                     inds = []
                     for i in range(self.num_particles):
                         p = self.particleArray[i]
-                        if p['label'] == get_label_code('temp-boundary'):
+                        if p['label'] == ParticleType.TempBoundary:
                             inds.append(i)
                     self.particleArray = np.delete(self.particleArray, np.array(inds), axis=0)
                     self.num_particles = len(self.particleArray)
@@ -363,10 +359,17 @@ class Solver:
                 # Update tbar
                 if self.damping == 0:
                     tbar.update(self.dt)
+                else:
+                    sbar.update(n=1)
+                    tbar.update(0)
             # End while
         # End-with
+        totTime = perf_counter() - start_all
 
         self.t_step = t_step
+        print(f'{Fore.GREEN}Solved!{Style.RESET_ALL}')
+        print(f'Solved {Fore.YELLOW}{self.num_particles}{Style.RESET_ALL} particles for {Fore.YELLOW}{self.duration:f}{Style.RESET_ALL} [s].')
+        print(f'Completed solve in {Fore.YELLOW}{totTime:f}{Style.RESET_ALL} [s] and {Fore.YELLOW}{t_step}{Style.RESET_ALL} steps')
 
     def timing(self):
         total = sum([self.storTime, self.preTime, self.corTime, self.expTime, self.comTime])
@@ -392,6 +395,7 @@ class Solver:
         t.add_row(['Exporting - Frames', round(self.expTime, 3), round(self.expTime / total * 100, 2)])
         t.add_row(['Total - Measured', round(total, 3), 100])
 
+        print('Detailed timing statistics:')
         print(t)
 
     def save(self):

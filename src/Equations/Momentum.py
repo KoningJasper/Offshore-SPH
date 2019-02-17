@@ -1,10 +1,8 @@
-import numpy as np
-from numba import prange, njit
+from numba import njit
 from typing import List
-from src.Particle import Particle
 
-@njit(parallel=True, fastmath=True)
-def Momentum(alpha: float, beta: float, p: np.array, comp: np.array) -> np.array:
+@njit(fastmath=True)
+def Momentum(alpha, beta, p, comp) -> List[float]:
     """
         Monaghan Momentum equation
 
@@ -12,11 +10,11 @@ def Momentum(alpha: float, beta: float, p: np.array, comp: np.array) -> np.array
         Parameters:
         ------
 
-        alpha: Scaling parameter
+        alpha: Scaling parameter for artifical viscosity.
 
-        beta: Scaling parameter
+        beta: Scaling parameter for artifical viscosity.
 
-        p: Particle it self array
+        p: Self-particle, [particle_dtype]
 
         comp: Other particles array
 
@@ -30,7 +28,7 @@ def Momentum(alpha: float, beta: float, p: np.array, comp: np.array) -> np.array
 
     a = [0.0, 0.0]
     J = len(comp)
-    for j in prange(J):
+    for j in range(J):
         # Compute acceleration due to pressure.
         othr = comp[j]['p'] / (comp[j]['rho'] * comp[j]['rho'])
 
@@ -53,4 +51,4 @@ def Momentum(alpha: float, beta: float, p: np.array, comp: np.array) -> np.array
         # Compute acceleration
         a[0] += - comp[j]['m'] * factor * comp[j]['dw_x']
         a[1] += - comp[j]['m'] * factor * comp[j]['dw_y']
-    return np.array(a)
+    return a

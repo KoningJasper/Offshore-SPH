@@ -1,11 +1,12 @@
 from numba import njit, prange
 
-@njit(parallel=True, fastmath=True)
-def Continuity(m, dwij, vij):
-    J = len(m); _arho = 0.0
-    for j in prange(J):
+@njit(fastmath=True)
+def Continuity(p, comp):
+    J = len(comp); _arho = 0.0
+    for j in range(J):
         # Manually compute the dot product.
-        dot = vij[j, 0] * dwij[j, 0] + vij[j, 1] * dwij[j, 1]
+        dot = comp[j]['vx'] * comp[j]['dw_x'] \
+                + comp[j]['vy'] * comp[j]['dw_y']
         
-        _arho += m[j] * dot
+        _arho += comp[j]['m'] * dot
     return _arho
