@@ -6,6 +6,7 @@ import unittest
 import numpy as np
 from time import perf_counter
 from src.Equations.Continuity import Continuity
+from src.Common import computed_dtype
 
 class test_numba_continuity(unittest.TestCase):
     def test_vec(self):
@@ -19,12 +20,21 @@ class test_numba_continuity(unittest.TestCase):
 
         m = np.ones(len(dwij_x))
 
+        # Create particle arrays
+        p = np.array([])
+        comp = np.zeros_like(dwij_x, dtype=computed_dtype)
+        comp['m'] = m
+        comp['vx'] = vij_x
+        comp['vy'] = vij_y
+        comp['dw_x'] = dwij_x
+        comp['dw_y'] = dwij_y
+
         # Pre-compile
-        Continuity(m, dwij, vij)
+        Continuity(p, comp)
 
         # Calc vectorized
         start_vec = perf_counter()
-        arho = Continuity(m, dwij, vij)
+        arho = Continuity(p, comp)
         t_vec = perf_counter() - start_vec
 
         # Calc old

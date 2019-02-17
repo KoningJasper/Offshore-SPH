@@ -67,7 +67,6 @@ class test_integrators_euler(unittest.TestCase):
     def some_particle(self, label: int):
         dt = 2.0
         p = np.zeros(1, dtype=particle_dtype)
-        p = p[0]
         p['label'] = label
         p['vx'] = 1.0
         p['vy'] = 3.0

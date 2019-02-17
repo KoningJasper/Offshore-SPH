@@ -7,6 +7,7 @@ import numpy as np
 from numba import vectorize, njit, jit, prange
 from time import perf_counter
 from src.Equations.Continuity import Continuity
+from src.Common import computed_dtype
 
 class test_vectorize(unittest.TestCase):
     def test(self):
@@ -34,8 +35,15 @@ class test_vectorize(unittest.TestCase):
         vij = np.transpose(np.vstack((m, m)))
         dwij = np.transpose(np.vstack((m, m)))
 
+        comp = np.zeros_like(m, dtype=computed_dtype)
+        comp['m'] = m
+        comp['vx'] = m
+        comp['vy'] = m
+        comp['dw_x'] = m
+        comp['dw_y'] = m
+
         test_vectorize.sum(test_vectorize.continuity_vec(m, m, m)) + test_vectorize.sum(test_vectorize.continuity_vec(m, m, m))
-        Continuity(m, dwij, vij)
+        Continuity(np.array([]), comp)
 
         start = perf_counter()
         v = test_vectorize.sum(test_vectorize.continuity_vec(m, m, m)) + test_vectorize.sum(test_vectorize.continuity_vec(m, m, m))
