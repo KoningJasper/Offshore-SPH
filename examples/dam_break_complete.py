@@ -37,26 +37,26 @@ def create_particles(N: int, mass: float):
     yv = np.zeros(len(xv)) + y_min
     for i in range(len(xv)):
         particles.append(Particle('boundary', xv[i], yv[i], mass_b, rho_b))
-        particles.append(Particle('boundary', xv[i] - r0 / 2, yv[i] - r0, mass_b, rho_b))
+        #particles.append(Particle('boundary', xv[i] - r0 / 2, yv[i] - r0, mass_b, rho_b))
 
     # Left & Right
     yv3 = np.arange(y_min, y_max, r0)    
     xv2 = np.zeros(len(yv3)) + x_min
     for i in range(len(yv3)):
         particles.append(Particle('boundary', xv2[i], yv3[i], mass_b, rho_b))
-        particles.append(Particle('boundary', xv2[i] - r0, yv3[i] - r0 / 2, mass_b, rho_b))
+        #particles.append(Particle('boundary', xv2[i] - r0, yv3[i] - r0 / 2, mass_b, rho_b))
         
     # Temp-Boundary
     xvt = np.zeros(len(yv3)) + 25 - x_min
     for i in range(len(yv3)):
         particles.append(Particle('temp-boundary', xvt[i], yv3[i], mass_b, rho_b))
-        particles.append(Particle('temp-boundary', xvt[i] + r0, yv3[i] - r0 / 2, mass_b, rho_b))
+        #particles.append(Particle('temp-boundary', xvt[i] + r0, yv3[i] - r0 / 2, mass_b, rho_b))
 
     return particles
 
 def main():
     # Main parameters
-    N = 20; rho0 = 1000.0; duration = 5.0
+    N = 10; rho0 = 1000.0; duration = 0.5
     XSPH = True; height = 25.0; plot = True
 
     # Create some particles
