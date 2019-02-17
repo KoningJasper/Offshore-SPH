@@ -9,8 +9,6 @@ from src.Equations.Continuity import Continuity
 
 class test_numba_continuity(unittest.TestCase):
     def test_vec(self):
-        cc = Continuity()
-
         dwij_x = np.linspace(0, 2000, 10_000_000)
         dwij_y = np.linspace(0, 2000, 10_000_000)
         dwij = np.transpose(np.vstack((dwij_x, dwij_y)))
@@ -22,11 +20,11 @@ class test_numba_continuity(unittest.TestCase):
         m = np.ones(len(dwij_x))
 
         # Pre-compile
-        cc.calc(m, dwij, vij)
+        Continuity(m, dwij, vij)
 
         # Calc vectorized
         start_vec = perf_counter()
-        arho = cc.calc(m, dwij, vij)
+        arho = Continuity(m, dwij, vij)
         t_vec = perf_counter() - start_vec
 
         # Calc old

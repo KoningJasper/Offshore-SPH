@@ -18,8 +18,6 @@ class test_numba_momentum(unittest.TestCase):
     eta: float = 0.5
 
     def test(self):
-        mom = Momentum()
-
         num = 10_000
 
         xij_x = np.linspace(0, 2000, num)
@@ -48,11 +46,11 @@ class test_numba_momentum(unittest.TestCase):
         c_j = np.ones(len(dwij_x)) * cs
 
         # Pre-compile
-        mom.calc(1000.0, 0.0, cs, 1.3, m, rho_o, p_o, c_j, h_j, xij, rij[0, :], vij, dwij)
+        Momentum(0.01, 0.0, 1000.0, 0.0, cs, 1.3, m, rho_o, p_o, c_j, h_j, xij, rij[0, :], vij, dwij)
 
         # Calc vectorized
         start_vec = perf_counter()
-        [a_x, a_y] = mom.calc(1000.0, 0.0, cs, 1.3, m, rho_o, p_o, c_j, h_j, xij, rij[0, :], vij, dwij)
+        [a_x, a_y] = Momentum(0.01, 0.0, 1000.0, 0.0, cs, 1.3, m, rho_o, p_o, c_j, h_j, xij, rij[0, :], vij, dwij)
         t_vec = perf_counter() - start_vec
 
         # Calc old

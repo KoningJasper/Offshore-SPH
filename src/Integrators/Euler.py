@@ -1,5 +1,5 @@
 import numpy as np
-from src.Common import get_label_code
+from src.Common import ParticleType
 from src.Integrators.Integrator import Integrator
 
 class Euler(Integrator):
@@ -23,7 +23,7 @@ class Euler(Integrator):
         """
 
         # Only move fluid particles.
-        if p['label'] == get_label_code('fluid'):
+        if p['label'] == ParticleType.Fluid:
             p['x'] = p['x'] + dt * p['vx'] + 0.5 * dt * dt * p['ax']
             p['y'] = p['y'] + dt * p['vy'] + 0.5 * dt * dt * p['ay']
 

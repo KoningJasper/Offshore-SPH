@@ -1,13 +1,12 @@
 import numpy as np
 from numba import njit, prange
 from typing import List, Tuple
-from src.Common import get_label_code
+from src.Common import ParticleType
 from src.Integrators.Integrator import Integrator
 
 class PEC(Integrator):
     """
     The predictor-corrector as described by Monaghan in his 1992 paper.
-    It does not take the damping, gamma, into account.
     """
 
     seq: List[Tuple[str, str]]
@@ -25,7 +24,7 @@ class PEC(Integrator):
     def predict(self, dt: float, p: np.array, damping: float) -> np.array:
         for end, acc in self.seq:
             # Skip if not fluid
-            if (end != 'rho') and (p['label'] != get_label_code('fluid')):
+            if (end != 'rho') and (p['label'] != ParticleType.Fluid):
                 continue
 
             # Store nought for later retrieval.
@@ -42,7 +41,7 @@ class PEC(Integrator):
     def correct(self, dt: float, p: np.array, damping: float) -> np.array:
         for end, acc in self.seq:
             # Skip if not fluid
-            if (end != 'rho') and (p['label'] != get_label_code('fluid')):
+            if (end != 'rho') and (p['label'] != ParticleType.Fluid):
                 continue
 
             # Correct the midpoint

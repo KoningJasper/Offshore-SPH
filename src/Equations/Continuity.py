@@ -1,19 +1,11 @@
-import numpy as np
-import math
 from numba import njit, prange
 
-class Continuity():
-    def calc(self, mass: np.array, dwij: np.array, vij: np.array) -> float:
-        """
-            SPH continuity equation; Calculates the change is density of the particles.
-        """
-        return _loop(mass, vij, dwij)
-
-@njit
-def _loop(m, vij, dwij):
-    _arho = 0.0
-    I = len(m)
-    for i in prange(I):
-        dot = vij[i, 0] * dwij[i, 0] + vij[i, 1] * dwij[i, 1]
-        _arho += m[i] * dot
+@njit(parallel=True, fastmath=True)
+def Continuity(m, dwij, vij):
+    J = len(m); _arho = 0.0
+    for j in prange(J):
+        # Manually compute the dot product.
+        dot = vij[j, 0] * dwij[j, 0] + vij[j, 1] * dwij[j, 1]
+        
+        _arho += m[j] * dot
     return _arho
