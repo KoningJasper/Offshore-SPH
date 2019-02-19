@@ -56,7 +56,7 @@ def create_particles(N: int, mass: float):
 
 def main():
     # Main parameters
-    N = 10; rho0 = 1000.0; duration = 0.5
+    N = 20; rho0 = 1000.0; duration = 5.0
     XSPH = True; height = 25.0; plot = False
 
     # Create some particles
