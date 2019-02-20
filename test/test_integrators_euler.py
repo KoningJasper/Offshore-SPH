@@ -4,7 +4,7 @@ sys.path.insert(1, os.path.join(sys.path[0], '..'))
 import unittest
 import numpy as np
 
-from src.Common import particle_dtype, get_label_code
+from src.Common import particle_dtype, ParticleType
 from src.Integrators.Euler import Euler
 
 class test_integrators_euler(unittest.TestCase):
@@ -14,7 +14,7 @@ class test_integrators_euler(unittest.TestCase):
         dt = 2.0
         p = np.zeros(1, dtype=particle_dtype)
         p = p[0]
-        p['label'] = get_label_code('boundary')
+        p['label'] = ParticleType.Boundary
         p['vx'] = 1.0
         p['vy'] = 3.0
         p['ax'] = 5.0
@@ -29,7 +29,7 @@ class test_integrators_euler(unittest.TestCase):
 
         # Now as a fluid
         p['rho'] = 0.0
-        p['label'] = get_label_code('fluid')
+        p['label'] = ParticleType.Fluid
         p3 = i.correct(dt, p)
 
         # Verify

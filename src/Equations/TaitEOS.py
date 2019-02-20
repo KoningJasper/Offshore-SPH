@@ -1,56 +1,61 @@
 import numpy as np
-import math
-from numba import vectorize, jit
-from src.Particle import Particle
+from math import sqrt
+from numba import njit, prange, vectorize
 
-class TaitEOS():
+@vectorize('float64(float64, float64, float64, float64)', fastmath=True)
+def TaitEOS(gamma, B, rho0, rho):
     """
-        TaitEOS
+        Calculates the pressure according to Tait EOS.
+
+        Parameters
+        ----------
+
+        gamma: factor
+
+        B: factor
+
+        rho0: factor
+
+        rho: array of densities
+
+        Returns
         -------
-        
-        Equation of state for that relates the pressure to the density of a particle.
+        Array of pressures
+
     """
-
-    """ Tait EOS factor """
-    gamma: float
-
-    """ Rest density of fluid [kg/m^3] """
-    rho0: float
-
-    """ Factor for Tait EOS [(m/s)^2]"""
-    B: float
-
-    """ Speed of sound [m/s] """
-    co: float
-
-    """ Water column height """
-    H: float
-
-    def __init__(self, height: float = 1.0, gamma: float = 7.0, rho0: float = 1000.0):
-        """
-            TaitEOS
-            -------
-            
-            Equation of state for that relates the pressure to the density of a particle.
-        """
-        self.gamma = gamma
-        self.rho0 = rho0
-        self.H = height
-
-        # Monaghan (2002) p. 1746
-        self.co = 10.0 * np.sqrt(2 * 9.81 * self.H)
-        self.B = self.co * self.co * self.rho0 / self.gamma
-
-    def initialize(self, y: float) -> float:
-        """ returns the density of particle based on height (y) of particle """
-        frac  = self.rho0 * 9.81 * (self.H - y) / self.B
-        return self.rho0 * (1 + frac) ** (1 / self.gamma)      
-
-    def calc(self, rho: np.array) -> np.array:
-        return _compute_pressure_vec(rho, self.rho0, self.gamma, self.B)
-
-
-@vectorize(['float64(float64, float64, float64, float64)'], target='parallel')
-def _compute_pressure_vec(rho, rho0, gamma, B):
     ratio = (rho / rho0) ** gamma
     return (ratio - 1.0) * B
+
+@njit(fastmath=True)
+def TaitEOS_B(co, rho0, gamma):
+    """
+    Calculates the B parameter in the TaitEOS.
+    """
+    return co * co * rho0 / gamma
+
+@njit(fastmath=True)
+def TaitEOS_co(H):
+    """ Calculates the speed of sound according to Tait EOS based on height of the water column (H). """
+    # Monaghan (2002) p. 1746
+    return 10.0 * sqrt(2 * 9.81 * H)
+
+@vectorize('float64(float64, float64, float64, float64, float64)', fastmath=True)
+def TaitEOS_height(rho0, H, B, gamma, y):
+    """
+        Initializes the particles with an initial pressure (P) based on their height (y) with relation to the water column height (H).
+        
+        Parameters
+        ----------
+
+        rho0: Initial density of the fluid.
+
+        H: Water column height
+
+        B: Tait parameter
+
+        gamma: Tait exponent parameter
+
+        y: Array of heights (y-coordinate).    
+    """
+    frac = rho0 * 9.81 * (H - y) / B
+    return rho0 * (1 + frac) ** (1 / gamma)

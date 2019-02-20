@@ -2,24 +2,30 @@ import numpy as np
 from typing import List
 from numba import njit, prange
 
-class XSPH():
-    """ XSPH correction. """
-    epsilon: float
+@njit(fastmath=True, parallel=True)
+def XSPH(epsilon, p, comp):
+    """
+        XSPH Correction
 
-    def __init__(self, epsilon: float = 0.5):
-        self.epsilon = epsilon
 
-    def calc(self, rho_i: float, m_j: np.array, rho_j: np.array, vij: np.array, wij: np.array) -> List[float]:
-        return _loop(self.epsilon, rho_i, m_j, rho_j, vij, wij)
+        Parameters
+        -------
 
-@njit
-def _loop(eps, rho_i, m_j, rho_j, vij, wij):
-    # vij is 2D.
+        epsilon: scaling parameter for XSPH correction, normally 0.5
+
+        p: self-array
+
+        comp: Other particles
+
+        Returns
+        -------
+        A list containing [xsph_x, xsph_y]
+    """
     xsph = [0.0, 0.0]
-    J = len(m_j)
-    for j in prange(J):
-        rho_ij = 0.5 * (rho_i + rho_j[j])
-        fac = - eps * m_j[j] * wij[j] / rho_ij
-        xsph[0] += fac * vij[j, 0]
-        xsph[1] += fac * vij[j, 1]
+    J = len(comp)
+    for j in range(J):
+        rho_ij = 0.5 * (p['rho'] + comp[j]['rho'])
+        fac = - epsilon * comp[j]['m'] * comp[j]['w'] / rho_ij
+        xsph[0] += fac * comp[j]['vx']
+        xsph[1] += fac * comp[j]['vy']
     return xsph

@@ -8,6 +8,7 @@ from scipy.spatial.distance import cdist
 from typing import List
 from time import perf_counter
 
+from src.Common import particle_dtype, computed_dtype
 from src.Particle import Particle
 from src.Kernels.Gaussian import Gaussian
 from src.Equations.Momentum import Momentum
@@ -18,8 +19,6 @@ class test_numba_momentum(unittest.TestCase):
     eta: float = 0.5
 
     def test(self):
-        mom = Momentum()
-
         num = 10_000
 
         xij_x = np.linspace(0, 2000, num)
@@ -47,12 +46,32 @@ class test_numba_momentum(unittest.TestCase):
         cs = 10.0 * np.sqrt(2 * 9.81 * 1.0)
         c_j = np.ones(len(dwij_x)) * cs
 
+        # Create arrays
+        pa = np.zeros(1, dtype=particle_dtype)[0]
+        pa['rho'] = 1000.0
+        pa['c'] = cs
+        pa['h'] = 1.3
+        pa['m'] = 1.0
+
+        comp = np.zeros_like(p_o, dtype=computed_dtype)
+        comp['p'] = p_o
+        comp['rho'] = rho_o
+        comp['h'] = h_j
+        comp['x'] = xij_x
+        comp['y'] = xij_y
+        comp['r'] = rij[0, :]
+        comp['dw_x'] = dwij_x
+        comp['dw_y'] = dwij_y
+        comp['vx'] = vij_x
+        comp['vy'] = vij_y
+        comp['m'] = m
+        
         # Pre-compile
-        mom.calc(1000.0, 0.0, cs, 1.3, m, rho_o, p_o, c_j, h_j, xij, rij[0, :], vij, dwij)
+        Momentum(0.01, 0.0, pa, comp)
 
         # Calc vectorized
         start_vec = perf_counter()
-        [a_x, a_y] = mom.calc(1000.0, 0.0, cs, 1.3, m, rho_o, p_o, c_j, h_j, xij, rij[0, :], vij, dwij)
+        [a_x, a_y] = Momentum(0.01, 0.0, pa, comp)
         t_vec = perf_counter() - start_vec
 
         # Calc old

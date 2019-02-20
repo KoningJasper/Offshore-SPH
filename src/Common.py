@@ -1,19 +1,24 @@
 import numpy as np
+import enum
+from collections import namedtuple
+from numba import jit, njit
 
 """ Common functions/helpers/objects for Offshore-SPH """
 
-types = {
-    'fluid': 0,
-    'boundary': 1,
-    'temp-boundary': 2
-}
+class ParticleType(enum.IntEnum):
+    Fluid = 0,
+    Boundary = 1,
+    TempBoundary = 2
 
-def get_label_code(label: str) -> int:
-    return types[label]
-
-def get_label(code: int) -> str:
-    # TODO: Make this work.
-    return ''
+def get_label_code(label: str):
+    if label == 'fluid':
+        return ParticleType.Fluid
+    elif label == 'boundary':
+        return ParticleType.Boundary
+    elif label == 'temp-boundary':
+        return ParticleType.TempBoundary
+    else:
+        raise Exception('Argument out of range')
 
 particle_dtype = np.dtype(
     {
@@ -87,3 +92,10 @@ computed_dtype = np.dtype({
         np.double,
     ]
 })
+
+@njit(parallel=True, fastmath=True)
+def _stack(m1, m2):
+    """
+        Stacks two arrays, horizontally.
+    """
+    return np.transpose(np.vstack((m1, m2)))
