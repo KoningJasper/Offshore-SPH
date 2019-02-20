@@ -5,9 +5,9 @@ from numba import njit, prange
 
 
 class test_pass_func(unittest.TestCase):
-    def test(self):
+    def test_static(self):
         x = np.arange(1e6); y = np.arange(1e6)
-        z = test_pass_func.run(x, y, test_pass_func.func)
+        z = run(x, y, test_pass_func.func)
 
         self.assertEqual(len(z), 1e6)
         for j in range(len(x)):
@@ -17,7 +17,7 @@ class test_pass_func(unittest.TestCase):
         func: abstr = impl()
 
         x = np.arange(1e6); y = np.arange(1e6)
-        z = test_pass_func.run(x, y, func.func)
+        z = run(x, y, func.func)
         
         self.assertEqual(len(z), 1e6)
         for j in range(len(x)):
@@ -28,19 +28,8 @@ class test_pass_func(unittest.TestCase):
     def func(x, y):
         return x + y
 
-    @staticmethod
-    @njit(fastmath=True, parallel=True)
-    def run(x: np.array, y: np.array, f):
-        z = np.zeros_like(x)
-        J = len(x)
-        for j in prange(J):
-            z[j] = f(x[j], y[j])
-
-        return z
-
-class abstr(metaclass=abc.ABCMeta):
+class abstr():
     @abc.abstractmethod
-    @staticmethod
     def func(x, y):
         pass
 
@@ -50,6 +39,14 @@ class impl(abstr):
     def func(x, y):
         return x + y
 
+@njit(fastmath=True, parallel=True)
+def run(x: np.array, y: np.array, f):
+    z = np.zeros_like(x)
+    J = len(x)
+    for j in range(J):
+        z[j] = f(x[j], y[j])
+
+    return z
 
 if __name__ == "__main__":
-    test_pass_func().test()
+    unittest.test()

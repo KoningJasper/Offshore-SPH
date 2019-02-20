@@ -11,8 +11,8 @@ from src.Common import computed_dtype
 
 class test_vectorize(unittest.TestCase):
     def test(self):
-        x = np.arange(1e8)
-        y = np.arange(1e8)
+        x = np.arange(1e6)
+        y = np.arange(1e6)
         
         test_vectorize.sum(test_vectorize.vec(x, y))
 
@@ -30,7 +30,7 @@ class test_vectorize(unittest.TestCase):
         print(f'Vec provides {nTime / vTime}x speed-up.')
 
     def test_continuity(self):
-        m = np.arange(1e8)
+        m = np.arange(1e6)
 
         vij = np.transpose(np.vstack((m, m)))
         dwij = np.transpose(np.vstack((m, m)))
@@ -51,7 +51,7 @@ class test_vectorize(unittest.TestCase):
         print(f'Vectorize: {vTime:f} [s]')
 
         start = perf_counter()
-        f = Continuity(m, dwij, vij)
+        f = Continuity(np.array([]), comp)
         nTime = perf_counter() - start
         print(f'njit: {nTime:f} [s]')
 
