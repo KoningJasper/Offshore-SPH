@@ -9,6 +9,7 @@ from src.Particle import Particle
 from src.Methods.WCSPH import WCSPH
 from src.Kernels.CubicSpline import CubicSpline
 from src.Integrators.PEC import PEC
+from src.Post.Plot import Plot
 
 def create_particles(N: int, mass: float):
     # Create some particles
@@ -68,7 +69,7 @@ def main():
     kernel = CubicSpline()
     method = WCSPH(height=height, rho0=rho0, num_particles=len(particles), useXSPH=XSPH)
     integrator = PEC(useXSPH=XSPH)
-    solver = Solver(method, integrator, kernel, duration, plot=plot)
+    solver = Solver(method, integrator, kernel, duration)
 
     # Add the particles
     solver.addParticles(particles)
@@ -83,7 +84,12 @@ def main():
     solver.timing()
 
     # Output
-    solver.save()
+    exportPath = f'{sys.path[0]}/dam-break-2d.npz'
+    solver.save(exportPath)
+
+    if plot == True:
+        plt = Plot(exportPath, title='Dam Break (2D)', xmin=-3, xmax=81, ymin=-3, ymax=41)
+        plt.save(f'{sys.path[0]}/dam-break-2d.mp4')
 
 if __name__ == '__main__':
     main()
