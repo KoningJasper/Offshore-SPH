@@ -22,7 +22,7 @@ class test_pass_func(unittest.TestCase):
         self.assertEqual(len(z), 1e6)
         for j in range(len(x)):
             self.assertEqual(x[j] + y[j], z[j])
-            
+
     @staticmethod
     @njit(fastmath=True, parallel=True)
     def func(x, y):
@@ -40,6 +40,7 @@ class test_pass_func(unittest.TestCase):
 
 class abstr(metaclass=abc.ABCMeta):
     @abc.abstractmethod
+    @staticmethod
     def func(x, y):
         pass
 

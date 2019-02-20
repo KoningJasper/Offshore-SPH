@@ -10,8 +10,8 @@ from colorama import Fore, Style
 from prettytable import PrettyTable
 from tqdm import tqdm
 from scipy.spatial.distance import cdist
-from numba import prange, jit, njit
-from typing import List, Tuple
+from numba import prange, jit, njit, cfunc
+from typing import List, Tuple, Dict
 from time import perf_counter
 
 # Own components
@@ -48,46 +48,35 @@ class Solver:
     num_particles: int = 0
 
     # Timing information
-    totTime: float = 0.0
-    stepTime: float = 0.0
-    nbrHTime: float = 0.0
-    nbrFTime: float = 0.0 
-    comTime: float = 0.0
-    eosTime: float = 0.0
-    cTime: float = 0.0
-    momTime: float = 0.0 # Momentum
-    conTime: float = 0.0 # Continuity
-    preTime: float = 0.0 # Prediction
-    corTime: float = 0.0 # Correction
-    propTime: float = 0.0 # calculation of properties.
-    propATime: float = 0.0
-    propKTime: float = 0.0
-    storTime: float = 0.0 # storing properties
-    expTime: float = 0.0 # Exporting time
+    timing_data: Dict[str, float] = {}
+
+    data: List[np.array] = []
 
     t_step: int
     dts: List[float] = []
-
     damping: float = 0.05 # Damping factor
 
-    options: List[Tuple[str, float]] = []
-
-    def __init__(self, method: Method, integrator: Integrator, kernel: Kernel, duration: float, plot: bool):
+    def __init__(self, method: Method, integrator: Integrator, kernel: Kernel, duration: float = 1.0, plot: bool = False):
         """
-            Parameters
-            ----------
+        Initializes a new solver object. The solver orchestrates the entire solving of the SPH simulation.
 
-            method: The method to use for the solving of SPH particles (WCSPH/ICSPH).
+        Parameters
+        ----------
 
-            integrator: The integration method to be used by the solver (Euler/Verlet).
+        method: src.Methods.Method
+            The method to use for the solving of SPH particles (WCSPH/ICSPH).
 
-            kernel: The kernel function to use in the evaluation (Gaussian/CubicSpline).
+        integrator: src.Interators.Integrator
+            The integration method to be used by the solver (Euler/Verlet).
 
-            duration: The duration of the simulation in seconds.
+        kernel: src.Kernels.Kernel
+            The kernel function to use in the evaluation (Gaussian/CubicSpline).
 
-            dt: timestep [s]
+        duration: float
+            The duration of the simulation in seconds.
 
-            plot: Should a plot be created?
+        plot: bool
+            Should a plot be created?
         """
 
         self.method     = method
@@ -96,8 +85,15 @@ class Solver:
         self.duration   = duration
         self.plot       = plot
 
-        # Get options
-        self.options = self.method.getOptions()
+        # Initialize timing
+        self.timing_data['total']                = 0.0
+        self.timing_data['storage']              = 0.0
+        self.timing_data['export']               = 0.0
+        self.timing_data['integrate_correction'] = 0.0
+        self.timing_data['integrate_prediction'] = 0.0
+        self.timing_data['compute']              = 0.0
+        self.timing_data['time_step']            = 0.0
+        self.timing_data['neighbour_hood']       = 0.0
 
     def addParticles(self, particles: List[Particle]):
         self.particles.extend(particles)
@@ -121,35 +117,19 @@ class Solver:
         # Convert the particle array.
         self._convertParticles()
 
-        # Initial guess for the timestep.
-        self.dt = 1e-5;
-        time_step_guess: int = math.ceil(self.duration / self.dt) + 1
-
-        # Empty time arrays
-        self.x = np.zeros([self.num_particles, time_step_guess]) # X-pos
-        self.y = np.zeros([self.num_particles, time_step_guess]) # Y-pos
-        self.c = np.zeros([self.num_particles, time_step_guess]) # Pressure (p)
-        self.u = np.zeros([self.num_particles, time_step_guess]) # Density (rho)
-        self.drho = np.zeros([self.num_particles, time_step_guess]) # Density (rho)
-        self.v = np.zeros([self.num_particles, 2, time_step_guess]) # Velocity both x and y
-        self.a = np.zeros([self.num_particles, 2, time_step_guess]) # Acceleration both x and y
-
-        # Initialization
         # Calc h
-        r = np.transpose(np.vstack((self.particleArray['x'], self.particleArray['y'])))
-        dist = cdist(r, r, 'euclidean')
-        h: np.array = 1.3 * np.ma.masked_values(dist, 0.0, copy=False).min(1)
+        (_, _, h) = self._nbrs()
         self.particleArray['h'] = h
 
-        self.particleArray = self.method.initialize(self.options, self.particleArray)
-        self.particleArray['p'] = self.method.compute_pressure(self.options, self.particleArray)
-        self.particleArray['c'] = self.method.compute_speed_of_sound(self.options, self.particleArray)
+        # Initialize particles
+        self.particleArray      = self.method.initialize(self.particleArray)
+
+        # Compute some initial properties
+        self.particleArray['p'] = self.method.compute_pressure(self.particleArray)
+        self.particleArray['c'] = self.method.compute_speed_of_sound(self.particleArray)
 
         # Set 0-th time-step
-        self.x[:, 0] = [p['x'] for p in self.particleArray]
-        self.y[:, 0] = [p['y'] for p in self.particleArray]
-        self.c[:, 0] = [p['p'] for p in self.particleArray]
-        self.u[:, 0] = [p['rho'] for p in self.particleArray]
+        self.data.append(self.particleArray)
 
         if self.plot == True:
             self.init_plot()
@@ -160,9 +140,11 @@ class Solver:
     @jit
     def _minTimeStep(self) -> float:
         start = perf_counter()
+
         dt = Courant(0.4, self.particleArray['h'], self.particleArray['c']) * (1 / 1.3)
         self.dts.append(dt)
-        self.stepTime += perf_counter() - start
+
+        self.timing_data['time_step'] += perf_counter() - start
         return dt
 
     @jit
@@ -176,24 +158,14 @@ class Solver:
         # Distance of closest particle time 1.3
         h: np.array = 1.3 * np.ma.masked_values(dist, 0.0, copy=False).min(1)
 
-        self.nbrHTime += perf_counter() - start
+        self.timing_data['neighbour_hood'] += perf_counter() - start
         return (r, dist, h)
-
-    @jit
-    def _findNbrs(self, i: int, h: np.array, dist: np.array):
-        start = perf_counter()
-
-        # Query neighbours
-        h_i, q_i, near_arr = _nearNbrs(i, h, dist[i, :])
-
-        self.nbrFTime += perf_counter() - start
-        return (h_i, q_i, near_arr)
 
     @staticmethod
     @njit(fastmath=True, parallel=True)
-    def _loop(options, h, dist, pA, evFunc, gradFunc, methodClass):
-        p = methodClass.compute_pressure(options, pA)
-        c = methodClass.compute_speed_of_sound(options, pA)
+    def _loop(h, dist, pA, evFunc, gradFunc, methodClass):
+        p = methodClass.compute_pressure(pA)
+        c = methodClass.compute_speed_of_sound(pA)
 
         for i in prange(len(pA)):
             # Assign parameters
@@ -218,18 +190,21 @@ class Solver:
             dw_y = gradFunc(calcProps['y'], calcProps['r'], calcProps['h'])
 
             for j in prange(len(calcProps)):
-                calcProps[j]['w'] = w[j]
+                calcProps[j]['w'] = w[j] # Not needed for density change
                 calcProps[j]['dw_x'] = dw_x[j]
                 calcProps[j]['dw_y'] = dw_y[j]
 
             # Continuity
-            pA[i]['drho'] = methodClass.compute_density_change(options, pA[i], calcProps)
+            pA[i]['drho'] = methodClass.compute_density_change(pA[i], calcProps)
 
-            # Momentum
             if pA[i]['label'] == ParticleType.Fluid:
-                [pA[i]['ax'], pA[i]['ay']] = methodClass.compute_acceleration(options, pA[i], calcProps)
-                [pA[i]['vx'], pA[i]['vy'], pA[i]['xsphx'], pA[i]['xsphy']] = methodClass.compute_velocity(options, pA[i], calcProps)
+                # Momentum
+                [pA[i]['ax'], pA[i]['ay']] = methodClass.compute_acceleration(pA[i], calcProps)
+
+                # XSPH
+                [pA[i]['vx'], pA[i]['vy'], pA[i]['xsphx'], pA[i]['xsphy']] = methodClass.compute_velocity(pA[i], calcProps)
             # end fluid
+
         return pA
 
     def _compute(self):
@@ -248,15 +223,9 @@ class Solver:
         self.particleArray['drho'] = 0.0
 
         # Loop
-        #self.particleArray = Solver._loop(self.options, h, dist, self.particleArray, Solver.testfunc, None, None, None, None, None, None)
-        self.particleArray = Solver._loop(self.options, h, dist, self.particleArray, self.kernel.evaluate, self.kernel.gradient, self.method)
+        self.particleArray = Solver._loop(h, dist, self.particleArray, self.kernel.evaluate, self.kernel.gradient, self.method)
 
-        self.comTime += perf_counter() - start
-
-    @staticmethod
-    @njit(fastmath=True)
-    def testfunc(opt, pa):
-        return 20.0
+        self.timing_data['compute'] += perf_counter() - start
 
     def solve(self):
         """
@@ -281,6 +250,10 @@ class Solver:
                 # Compute time step.
                 self.dt = self._minTimeStep()
 
+                # Check explosion
+                if self.dt > 0.1:
+                    print(f'{Fore.YELLOW}Warning: {Style.RESET_ALL} suspected explosion. Check time-step.')
+
                 if self.integrator.isMultiStage() == True:
                     # Start with eval
                     self._compute()
@@ -288,7 +261,7 @@ class Solver:
                 # Predict
                 start = perf_counter()
                 self.particleArray = self.integrator.predict(self.dt, self.particleArray, self.damping)
-                self.preTime += perf_counter() - start
+                self.timing_data['integrate_prediction'] += perf_counter() - start
 
                 # Compute the accelerations
                 self._compute()
@@ -296,21 +269,12 @@ class Solver:
                 # Correct
                 start = perf_counter()
                 self.particleArray = self.integrator.correct(self.dt, self.particleArray, self.damping)
-                self.corTime += perf_counter() - start
+                self.timing_data['integrate_correction'] += perf_counter() - start
 
-                # Store-loop
+                # Store to data
                 start = perf_counter()
-                for i in range(self.num_particles):
-                    # Put into giant-matrix
-                    p = self.particleArray[i] # Easier
-                    self.x[i, t_step + 1] = p['x']
-                    self.y[i, t_step + 1] = p['y']
-                    self.c[i, t_step + 1] = p['p']
-                    self.u[i, t_step + 1] = p['rho']
-                    self.v[i, :, t_step + 1] = np.array([p['vx'], p['vy']])
-                    self.a[i, :, t_step + 1] = np.array([p['ax'], p['ay']])
-                    self.drho[i, t_step + 1] = p['drho']
-                self.storTime += perf_counter() - start
+                self.data.append(self.particleArray)
+                self.timing_data['storage'] += perf_counter() - start
 
                 # End integration-loop
                 if self.damping == 0:
@@ -337,11 +301,11 @@ class Solver:
                     self.num_particles = len(self.particleArray)
 
                 # Update and export plot
-                sExp: float = perf_counter()
+                start = perf_counter()
                 if self.plot == True:
                     self.update_frame(t_step, t)
                     self.export(t_step)
-                self.expTime += perf_counter() - sExp
+                self.timing_data['export'] += perf_counter() - start
 
                 # Update tbar
                 if self.damping == 0:
@@ -351,36 +315,18 @@ class Solver:
                     tbar.update(0)
             # End while
         # End-with
-        totTime = perf_counter() - start_all
+        self.timing_data['total'] = perf_counter() - start_all
 
+        total = self.timing_data['total']
         self.t_step = t_step
         print(f'{Fore.GREEN}Solved!{Style.RESET_ALL}')
         print(f'Solved {Fore.YELLOW}{self.num_particles}{Style.RESET_ALL} particles for {Fore.YELLOW}{self.duration:f}{Style.RESET_ALL} [s].')
-        print(f'Completed solve in {Fore.YELLOW}{totTime:f}{Style.RESET_ALL} [s] and {Fore.YELLOW}{t_step}{Style.RESET_ALL} steps')
+        print(f'Completed solve in {Fore.YELLOW}{total:f}{Style.RESET_ALL} [s] and {Fore.YELLOW}{t_step}{Style.RESET_ALL} steps')
 
     def timing(self):
-        total = sum([self.storTime, self.preTime, self.corTime, self.expTime, self.comTime])
-
-        nbrTime = self.nbrFTime + self.nbrHTime
-
         t = PrettyTable(['Name', 'Time [s]', 'Percentage [%]'])
-        t.add_row(['Properties - Assigning', round(self.propATime, 3), round(self.propATime / total * 100, 2)])
-        t.add_row(['Properties - Kernel', round(self.propKTime, 3), round(self.propKTime / total * 100, 2)])
-        t.add_row(['Properties - Total', round(self.propTime, 3), round(self.propTime / total * 100, 2)])
-        t.add_row(['Neighbours - Hood', round(self.nbrHTime, 3), round(self.nbrHTime / total * 100, 2)])
-        t.add_row(['Neighbours - Find', round(self.nbrFTime, 3), round(self.nbrFTime / total * 100, 2)])
-        t.add_row(['Neighbours - Total', round(nbrTime, 3), round(nbrTime / total * 100, 2)])
-        t.add_row(['Compute - EOS', round(self.eosTime, 3), round(self.eosTime / total * 100, 2)])
-        t.add_row(['Compute - Speed of Sound', round(self.cTime, 3), round(self.cTime / total * 100, 2)])
-        t.add_row(['Compute - Continuity', round(self.conTime, 3), round(self.conTime / total * 100, 2)])
-        t.add_row(['Compute - Momentum', round(self.momTime, 3), round(self.momTime / total * 100, 2)])
-        t.add_row(['Compute - Total', round(self.comTime, 3), round(self.comTime / total * 100, 2)])
-        t.add_row(['Calc. time step', round(self.stepTime, 3), round(self.stepTime / total * 100, 2)])
-        t.add_row(['Storage', round(self.storTime, 3), round(self.storTime / total * 100, 2)])
-        t.add_row(['Predictor', round(self.preTime, 3), round(self.preTime / total * 100, 2)])
-        t.add_row(['Corrector', round(self.corTime, 3), round(self.corTime / total * 100, 2)])
-        t.add_row(['Exporting - Frames', round(self.expTime, 3), round(self.expTime / total * 100, 2)])
-        t.add_row(['Total - Measured', round(total, 3), 100])
+        for k, v in self.timing_data.items():
+            t.add_row([k, round(v, 3), round(v / self.timing_data['total'] * 100, 2)])
 
         print('Detailed timing statistics:')
         print(t)
@@ -395,7 +341,7 @@ class Solver:
             self.export_mp4()
 
         # Export compressed numpy-arrays
-        np.savez_compressed(f'{sys.path[0]}/export', x=self.x, y=self.y, p=self.c, rho=self.u, v=self.v, a=self.a, drho=self.drho)
+        np.savez_compressed(f'{sys.path[0]}/export', data=np.array(self.data), dts=np.array(self.dts))
         print(f'Exported arrays to: "{sys.path[0]}/export.npz".')
 
         # Export dts
@@ -413,7 +359,7 @@ class Solver:
         self.exporter.export(f'{self.tempdir.name}/export_{frame_str}.png')
 
     def update_frame(self, frame: int, time: float) -> None:
-        self.pl.setData(x=self.x[:, frame], y=self.y[:, frame], symbolBrush=self.cm.map(self.c[:, frame], 'qcolor'), symbolSize=self.sZ)
+        self.pl.setData(x=self.particleArray['x'], y=self.particleArray['y'], symbolBrush=self.cm.map(self.particleArray['p'] / 1000, 'qcolor'), symbolSize=self.sZ)
         self.txtItem.setText(f't = {time:f} [s]')
 
     def init_plot(self):
@@ -444,7 +390,7 @@ class Solver:
         colors = []
         for cc in c_range:
             colors.append([cc, 0.0, 1 - cc, 1.0]) # Blue to red color spectrum
-        stops = np.round(c_range * (np.max(self.c[:, 0])) / 1000, 0)
+        stops = np.round(c_range * (np.max(self.particleArray['p'])) / 1000, 0)
         self.cm = pg.ColorMap(stops, np.array(colors))
         
         # make colorbar, placing by hand
@@ -454,7 +400,7 @@ class Solver:
 
         # Initial points
         self.sZ = (40 * (2 / (self.num_particles ** 0.5)))
-        self.pl = self.pw.plot(self.x[:, 0], self.y[:, 0], pen=None, symbol='o', symbolBrush=self.cm.map(self.c[:, 0] / 1000, 'qcolor'), symbolPen=None, symbolSize=self.sZ)
+        self.pl = self.pw.plot(self.particleArray['x'], self.particleArray['y'], pen=None, symbol='o', symbolBrush=self.cm.map(self.particleArray['p'] / 1000, 'qcolor'), symbolPen=None, symbolSize=self.sZ)
 
         # Frame 0 export.
         self.tempdir = tempfile.TemporaryDirectory()
@@ -462,7 +408,7 @@ class Solver:
         self.export(0)
 
         # Timing
-        self.expTime += perf_counter() - start
+        self.timing_data['export'] += perf_counter() - start
 
     def export_mp4(self):
         # Export to mp4
@@ -500,8 +446,8 @@ def _assignProps(i: int, particleArray: np.array, near_arr: np.array, h_i: np.ar
         calcProps[j]['r'] = dist[global_i] # distance, precalculated
 
         # Positional values
-        calcProps[j]['x'] = particleArray[i]['x'] - pA['x']
-        calcProps[j]['y'] = particleArray[i]['y'] - pA['y']
+        calcProps[j]['x']  = particleArray[i]['x'] - pA['x']
+        calcProps[j]['y']  = particleArray[i]['y'] - pA['y']
         calcProps[j]['vx'] = particleArray[i]['vx'] - pA['vx']
         calcProps[j]['vy'] = particleArray[i]['vy'] - pA['vy']
     # END_LOOP

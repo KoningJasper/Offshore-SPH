@@ -50,7 +50,7 @@ class WCSPH(Method):
         return [0.0]
 
     # Override
-    def initialize(self, opt, pA):
+    def initialize(self, pA):
         """ Initialize the particles, should only be run once at the start of the solver. """
         rho = TaitEOS.TaitEOS_height(
             self.rho0,
@@ -65,7 +65,7 @@ class WCSPH(Method):
 
         return pA
 
-    def compute_speed_of_sound(self, options, pA):
+    def compute_speed_of_sound(self, pA):
         # Speed of sound is a constant with Tait, so just return that.
         J = len(pA)
         cs = np.zeros(J, dtype=np.float64)
@@ -73,7 +73,7 @@ class WCSPH(Method):
             cs[j] = self.co
         return cs
 
-    def compute_pressure(self, options, pA: np.array):
+    def compute_pressure(self, pA: np.array):
         return TaitEOS.TaitEOS(
             self.gamma,
             self.B,
@@ -82,7 +82,7 @@ class WCSPH(Method):
         )
 
     # Override
-    def compute_acceleration(self, options, p, comp):
+    def compute_acceleration(self, p, comp):
         # Momentum
         [a_x, a_y] = Momentum.Momentum(
             self.alpha,
@@ -95,7 +95,7 @@ class WCSPH(Method):
         return [a_x, a_y - 9.81]
 
     # Override
-    def compute_velocity(self, options, p, comp):
+    def compute_velocity(self, p, comp):
         if self.useXSPH > 0.0:
             # Compute XSPH Term
             [xsph_x, xsph_y] = XSPH.XSPH(self.epsilon, p, comp)
@@ -107,6 +107,6 @@ class WCSPH(Method):
             return [p['vx'], p['vy'], p['vx'], p['vy'],]
 
     # override
-    def compute_density_change(self, options, p, comp):
+    def compute_density_change(self, p, comp):
         return Continuity.Continuity(p, comp)
 
