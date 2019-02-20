@@ -1,7 +1,5 @@
 # Import python packages
 import sys
-import tempfile
-import subprocess
 import math
 
 # Other packages
@@ -20,15 +18,7 @@ from src.Particle import Particle
 from src.Methods.Method import Method
 from src.Kernels.Kernel import Kernel
 from src.Integrators.Integrator import Integrator
-from src.ColorBar import ColorBar
 from src.Equations.Courant import Courant
-
-# Plotting
-import pyqtgraph as pg
-import pyqtgraph.exporters
-from pyqtgraph.Qt import QtCore
-from pyqtgraph.graphicsItems import TextItem
-from pyqtgraph.graphicsItems.GradientEditorItem import Gradients
 
 class Solver:
     """
@@ -40,7 +30,6 @@ class Solver:
     kernel: Kernel
     duration: float
     dt: float
-    plot: bool
 
     # Particle information
     particles: List[Particle] = []
@@ -56,7 +45,7 @@ class Solver:
     dts: List[float] = []
     damping: float = 0.05 # Damping factor
 
-    def __init__(self, method: Method, integrator: Integrator, kernel: Kernel, duration: float = 1.0, plot: bool = False):
+    def __init__(self, method: Method, integrator: Integrator, kernel: Kernel, duration: float = 1.0):
         """
         Initializes a new solver object. The solver orchestrates the entire solving of the SPH simulation.
 
@@ -74,21 +63,16 @@ class Solver:
 
         duration: float
             The duration of the simulation in seconds.
-
-        plot: bool
-            Should a plot be created?
         """
 
         self.method     = method
         self.integrator = integrator
         self.kernel     = kernel
         self.duration   = duration
-        self.plot       = plot
 
         # Initialize timing
         self.timing_data['total']                = 0.0
         self.timing_data['storage']              = 0.0
-        self.timing_data['export']               = 0.0
         self.timing_data['integrate_correction'] = 0.0
         self.timing_data['integrate_prediction'] = 0.0
         self.timing_data['compute']              = 0.0
@@ -130,10 +114,6 @@ class Solver:
 
         # Set 0-th time-step
         self.data.append(self.particleArray)
-
-        if self.plot == True:
-            self.init_plot()
-            self.export(0)
 
         print(f'{Fore.GREEN}Setup complete.{Style.RESET_ALL}')
 
@@ -212,7 +192,7 @@ class Solver:
         start = perf_counter()
 
         # Neighbourhood
-        (r, dist, h) = self._nbrs()
+        (_, dist, h) = self._nbrs()
 
         # Set h
         self.particleArray['h'] = h
@@ -300,13 +280,6 @@ class Solver:
                     self.particleArray = np.delete(self.particleArray, np.array(inds), axis=0)
                     self.num_particles = len(self.particleArray)
 
-                # Update and export plot
-                start = perf_counter()
-                if self.plot == True:
-                    self.update_frame(t_step, t)
-                    self.export(t_step)
-                self.timing_data['export'] += perf_counter() - start
-
                 # Update tbar
                 if self.damping == 0:
                     tbar.update(self.dt)
@@ -331,96 +304,21 @@ class Solver:
         print('Detailed timing statistics:')
         print(t)
 
-    def save(self):
+    def save(self, location: str):
         """
             Saves the output to a compressed export .npz file.
+
+            Parameters
+            ----------
+
+            location: str
+                Path to export arrays to, should include .npz
         """
-        
-        # Export movie if relevant.
-        if self.plot == True:
-            self.export_mp4()
-
         # Export compressed numpy-arrays
-        np.savez_compressed(f'{sys.path[0]}/export', data=np.array(self.data), dts=np.array(self.dts))
-        print(f'Exported arrays to: "{sys.path[0]}/export.npz".')
+        np.savez_compressed(location.replace('.npz', ''), data=np.array(self.data), dts=np.array(self.dts))
+        print(f'Exported arrays to: "{location}".')
 
-        # Export dts
-        np.savez_compressed(f'{sys.path[0]}/dts', dts=np.array(self.dts))
-        print(f'Exported dts to: "{sys.path[0]}/export.npz".')
-
-    # Plotting functions
-    def export(self, frame: int):
-        # Export
-        self.exporter = pg.exporters.ImageExporter(self.pw.plotItem)
-        self.exporter.params.param('width').setValue(700, blockSignal=self.exporter.widthChanged)
-        self.exporter.params.param('height').setValue(500, blockSignal=self.exporter.heightChanged)
-
-        frame_str = "{:06}".format(frame)
-        self.exporter.export(f'{self.tempdir.name}/export_{frame_str}.png')
-
-    def update_frame(self, frame: int, time: float) -> None:
-        self.pl.setData(x=self.particleArray['x'], y=self.particleArray['y'], symbolBrush=self.cm.map(self.particleArray['p'] / 1000, 'qcolor'), symbolSize=self.sZ)
-        self.txtItem.setText(f't = {time:f} [s]')
-
-    def init_plot(self):
-        """ Initialize the plot. """
-        start: float = perf_counter()
-
-        # use less ink
-        pg.setConfigOption('background', 'w')
-        pg.setConfigOption('foreground', 'k')
-        pg.setConfigOptions(antialias=True)
-
-        # Plot
-        # TODO: Change the titles.
-        # TODO: Set range automatically, or from parameter; at least not hard-coded.
-        self.pw = pg.plot(title='Dam break (2D)', labels={'left': 'Y [m]', 'bottom': 'X [m]', 'top': 'Dam Break (2D)'})
-        self.pw.setXRange(-3, 81)
-        self.pw.setYRange(-3, 41)
-
-        # Text
-        self.txtItem = pg.TextItem(text = f't = 0.00000 [s]')
-        self.pw.scene().addItem(self.txtItem)
-        [[xmin, xmax], [_, _]] = self.txtItem.getViewBox().viewRange()
-        xrange = xmax - xmin
-        self.txtItem.translate(350.0 - xrange, 90.0)
-
-        # make colormap
-        c_range = np.linspace(0, 1, num=10)
-        colors = []
-        for cc in c_range:
-            colors.append([cc, 0.0, 1 - cc, 1.0]) # Blue to red color spectrum
-        stops = np.round(c_range * (np.max(self.particleArray['p'])) / 1000, 0)
-        self.cm = pg.ColorMap(stops, np.array(colors))
-        
-        # make colorbar, placing by hand
-        cb = ColorBar(cmap=self.cm, width=10, height=200, label='Pressure [kPa]')
-        self.pw.scene().addItem(cb)
-        cb.translate(610.0, 90.0)
-
-        # Initial points
-        self.sZ = (40 * (2 / (self.num_particles ** 0.5)))
-        self.pl = self.pw.plot(self.particleArray['x'], self.particleArray['y'], pen=None, symbol='o', symbolBrush=self.cm.map(self.particleArray['p'] / 1000, 'qcolor'), symbolPen=None, symbolSize=self.sZ)
-
-        # Frame 0 export.
-        self.tempdir = tempfile.TemporaryDirectory()
-        print(f'Exporting frames to directory: {self.tempdir.name}')
-        self.export(0)
-
-        # Timing
-        self.timing_data['export'] += perf_counter() - start
-
-    def export_mp4(self):
-        # Export to mp4
-        fps = np.round(self.t_step / self.duration / 8) # Frames per second
-        subprocess.run(f'ffmpeg -hide_banner -loglevel panic -y -framerate {fps} -i "{self.tempdir.name}\\export_%06d.png" -s:v 700x500 -c:v libx264 \
--profile:v high -crf 20 -pix_fmt yuv420p {sys.path[0]}\\export.mp4"')
-        print('Export complete!')
-        print(f'Exported to "{sys.path[0]}\\export.mp4".')
-
-        # Cleanup export dir
-        self.tempdir.cleanup()
-
+    
 # Moved to outside of class for numba
 @njit(fastmath=True)
 def _assignProps(i: int, particleArray: np.array, near_arr: np.array, h_i: np.array, q_i: np.array, dist: np.array):
