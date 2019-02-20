@@ -115,13 +115,20 @@ class Solver:
         # Set 0-th time-step
         self.data.append(self.particleArray)
 
-        print(f'{Fore.GREEN}Setup complete.{Style.RESET_ALL}')
+        println(f'{Fore.GREEN}Setup complete.{Style.RESET_ALL}')
 
     @jit
     def _minTimeStep(self) -> float:
         start = perf_counter()
 
-        dt = Courant(0.4, self.particleArray['h'], self.particleArray['c']) * (1 / 1.3)
+        # Only keep fluid particles, solids don't move.
+        h = []; c = []
+        for j in prange(self.num_particles):
+            if self.particleArray[j]['label'] == ParticleType.Fluid:
+                h.append(self.particleArray[j]['h'])
+                c.append(self.particleArray[j]['c'])
+        
+        dt = Courant(0.4, np.array(h), np.array(c)) * (1 / 1.3)
         self.dts.append(dt)
 
         self.timing_data['time_step'] += perf_counter() - start
@@ -222,7 +229,7 @@ class Solver:
         # TODO: Change giant-matrix size if wrong due to different time-steps.
         t_step: int = 0   # Step
         t: float    = 0.0 # Current time
-        print('Started solving...')
+        println('Started solving...')
         settleSteps = 100
         sbar = tqdm(total=settleSteps, desc='Settling', unit='steps', leave=False)
         with tqdm(total=self.duration, desc='Time-stepping', unit='s', leave=False) as tbar:
@@ -232,7 +239,7 @@ class Solver:
 
                 # Check explosion
                 if self.dt > 0.1:
-                    print(f'{Fore.YELLOW}Warning: {Style.RESET_ALL} suspected explosion. Check time-step.')
+                    println(f'{Fore.YELLOW}Warning: {Style.RESET_ALL} suspected explosion at t = {t} [s]; Check time-step.')
 
                 if self.integrator.isMultiStage() == True:
                     # Start with eval
@@ -266,7 +273,7 @@ class Solver:
                     if self.damping > 0:
                         sbar.update(n=1)
                         sbar.close()
-                        print(f'{Fore.GREEN}Settling Complete.{Style.RESET_ALL}')
+                        println(f'{Fore.GREEN}Settling Complete.{Style.RESET_ALL}')
                         
                     # Stop damping after 100-th time steps.
                     self.damping = 0.0
@@ -292,17 +299,17 @@ class Solver:
 
         total = self.timing_data['total']
         self.t_step = t_step
-        print(f'{Fore.GREEN}Solved!{Style.RESET_ALL}')
-        print(f'Solved {Fore.YELLOW}{self.num_particles}{Style.RESET_ALL} particles for {Fore.YELLOW}{self.duration:f}{Style.RESET_ALL} [s].')
-        print(f'Completed solve in {Fore.YELLOW}{total:f}{Style.RESET_ALL} [s] and {Fore.YELLOW}{t_step}{Style.RESET_ALL} steps')
+        println(f'{Fore.GREEN}Solved!{Style.RESET_ALL}')
+        println(f'Solved {Fore.YELLOW}{self.num_particles}{Style.RESET_ALL} particles for {Fore.YELLOW}{self.duration:f}{Style.RESET_ALL} [s].')
+        println(f'Completed solve in {Fore.YELLOW}{total:f}{Style.RESET_ALL} [s] and {Fore.YELLOW}{t_step}{Style.RESET_ALL} steps')
 
     def timing(self):
         t = PrettyTable(['Name', 'Time [s]', 'Percentage [%]'])
         for k, v in self.timing_data.items():
             t.add_row([k, round(v, 3), round(v / self.timing_data['total'] * 100, 2)])
 
-        print('Detailed timing statistics:')
-        print(t)
+        println('Detailed timing statistics:')
+        println(t)
 
     def save(self, location: str):
         """
@@ -316,7 +323,7 @@ class Solver:
         """
         # Export compressed numpy-arrays
         np.savez_compressed(location.replace('.npz', ''), data=np.array(self.data), dts=np.array(self.dts))
-        print(f'Exported arrays to: "{location}".')
+        println(f'Exported arrays to: "{location}".')
 
     
 # Moved to outside of class for numba
