@@ -42,10 +42,14 @@ class Solver:
     data: List[np.array] = []
 
     t_step: int
-    dts: List[float] = []
+    
+    dt_a: List[float] = []
+    dt_c: List[float] = []
+    dt_f: List[float] = []
+
     damping: float = 0.05 # Damping factor
 
-    def __init__(self, method: Method, integrator: Integrator, kernel: Kernel, duration: float = 1.0):
+    def __init__(self, method: Method, integrator: Integrator, kernel: Kernel, duration: float = 1.0, quick: bool = True):
         """
         Initializes a new solver object. The solver orchestrates the entire solving of the SPH simulation.
 
@@ -63,6 +67,9 @@ class Solver:
 
         duration: float
             The duration of the simulation in seconds.
+
+        quick: bool
+            Makes larger timesteps, if an explosion occurs: winds back and retries with a smaller timestep
         """
 
         self.method     = method
@@ -117,22 +124,56 @@ class Solver:
 
         println(f'{Fore.GREEN}Setup complete.{Style.RESET_ALL}')
 
-    @jit
     def _minTimeStep(self) -> float:
         start = perf_counter()
 
-        # Only keep fluid particles, solids don't move.
-        h = []; c = []
-        for j in prange(self.num_particles):
-            if self.particleArray[j]['label'] == ParticleType.Fluid:
-                h.append(self.particleArray[j]['h'])
-                c.append(self.particleArray[j]['c'])
-        
-        dt = Courant(0.4, np.array(h), np.array(c)) * (1 / 1.3)
-        self.dts.append(dt)
+        min_h, max_c, max_a2 = Solver.computeVars(self.num_particles, self.particleArray)
+
+        gamma_f = 0.25
+        if self.quick == True:
+            gamma_f = 0.6
+
+        # Courant
+        self.dt_c.append(Solver.courantTimeStep(0.4, min_h, max_c))
+        self.dt_f.append(Solver.forceTimeStep(0.25, min_h, max_a2))
+
+        dt = min(self.dt_c[-1], self.dt_f[-1])
+        self.dt_a.append(dt)
 
         self.timing_data['time_step'] += perf_counter() - start
         return dt
+
+    @staticmethod
+    @njit(fastmath=True)
+    def computeVars(J, pA):
+        h = []; c = []; a2 = []
+        for j in prange(J):
+            if pA[j]['label'] == ParticleType.Fluid:
+                h.append(pA[j]['h'])
+                c.append(pA[j]['c'])
+                a2.append(pA[j]['ax'] * pA[j]['ax'] + pA[j]['ay'] * pA[j]['ay'])
+
+        # Find the maximum this can not be done parallel.
+        min_h  = np.min(np.array(h))
+        max_c  = np.max(np.array(c))
+        max_a2 = np.max(np.array(a2))
+
+        return min_h, max_c, max_a2
+
+    @staticmethod
+    @njit('float64(float64, float64, float64)', fastmath=True)
+    def courantTimeStep(cfl, h_min, c_max) -> float:
+        """ Timestep due to courant condition. """
+        return cfl * h_min / c_max
+
+    @staticmethod
+    @njit('float64(float64, float64, float64)', fastmath=True)
+    def forceTimeStep(cfl, min_h, max_a) -> float:
+        """ Time-step due to force. """
+        if max_a < 1e-12:
+            return 1e10
+        else:
+            return cfl * math.sqrt(min_h / max_a)
 
     @jit
     def _nbrs(self):
@@ -232,14 +273,35 @@ class Solver:
         println('Started solving...')
         settleSteps = 100
         sbar = tqdm(total=settleSteps, desc='Settling', unit='steps', leave=False)
+
+        t_fail: float = 0.0 # Time at failure
+        t_stepback: int = 10
+        t_threshold: float = 0.05 # Explosion treshold
+        
         with tqdm(total=self.duration, desc='Time-stepping', unit='s', leave=False) as tbar:
             while t < self.duration:
                 # Compute time step.
                 self.dt = self._minTimeStep()
 
                 # Check explosion
-                if self.dt > 0.1:
+                if self.dt > t_threshold:
                     println(f'{Fore.YELLOW}Warning: {Style.RESET_ALL} suspected explosion at t = {t} [s]; Check time-step.')
+
+                    if self.quick == True:
+                        println(f'Rolling back {t_stepback} timesteps')
+                        t_fail = t
+
+                        # Restore previous data
+                        self.particleArray = self.data[-t_stepback]
+
+                if t_fail > 1e-12:
+                    # Failed
+                    if t >= t_fail:
+                        # Unfailed
+                        t_fail = 0.0
+                    else:
+                        # Scale dt
+                        self.dt = self.dt * t_scale
 
                 if self.integrator.isMultiStage() == True:
                     # Start with eval
@@ -322,7 +384,13 @@ class Solver:
                 Path to export arrays to, should include .npz
         """
         # Export compressed numpy-arrays
-        np.savez_compressed(location.replace('.npz', ''), data=np.array(self.data), dts=np.array(self.dts))
+        np.savez_compressed(location.replace('.npz', ''), 
+            data=np.array(self.data),
+            dts=np.array(self.dt_a),
+            dt_c=np.array(self.dt_c),
+            dt_f=np.array(self.dt_f)
+        )
+
         println(f'Exported arrays to: "{location}".')
 
     
@@ -374,3 +442,6 @@ def _nearNbrs(i: int, h: np.array, dist: np.array):
         if q_i[j] <= 3.0:
             near.append(j)
     return (h_i, q_i, np.array(near))
+
+def println(text: str):
+    print(f'\n{text}')

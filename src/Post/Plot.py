@@ -126,6 +126,8 @@ class Plot():
         end = perf_counter() - start
         print(f'Rendered to file in {Fore.GREEN}{end:f}{Style.RESET_ALL} [s]')
 
+        print(f'{Fore.YELLOW}Plot will now throw an error that can be ignored.{Style.RESET_ALL}')
+
     # Private methods down from here.
 
     def _load(self):
