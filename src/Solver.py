@@ -302,7 +302,7 @@ class Solver:
         t_step: int = 0   # Step
         t: float    = 0.0 # Current time
         println('Started solving...')
-        settleSteps = 100
+        settleSteps = 1000
         sbar = tqdm(total=settleSteps, desc='Settling', unit='steps', leave=False)
 
         t_fail: float = 0.0 # Time at failure
@@ -384,7 +384,7 @@ class Solver:
                     self.particleArray['p'][np.array(inds)] = -1e15
 
                     # Set settling time
-                    self.settleTime = t
+                    self.settleTime = sum(self.dt_a)
                     
                 # Stop damping after 100-th time steps.
                 self.damping = 0.0
@@ -445,7 +445,7 @@ class Solver:
             h5f.create_dataset('dt_a', data=self.dt_a, shuffle=True, compression="gzip")
             h5f.create_dataset('dt_c', data=self.dt_c, shuffle=True, compression="gzip")
             h5f.create_dataset('dt_f', data=self.dt_f, shuffle=True, compression="gzip")
-            h5f.create_dataset('settleTime', data=np.array(self.settleTime))
+            h5f.create_dataset('settleTime', data=self.settleTime)
 
             for key in self.exportProperties:
                 h5f.create_dataset(key, data=np.stack(self.export[key]), shuffle=True, compression="gzip")
