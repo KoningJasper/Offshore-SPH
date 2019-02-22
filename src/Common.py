@@ -22,8 +22,9 @@ def get_label_code(label: str):
 
 particle_dtype = np.dtype(
     {
-        'names': ['label', 'm', 'rho', 'p', 'c', 'drho', 'h', 'x', 'y', 'vx', 'vy', 'ax', 'ay', 'xsphx', 'xsphy', 'x0', 'y0', 'vx0', 'vy0', 'rho0'],
+        'names': ['deleted', 'label', 'm', 'rho', 'p', 'c', 'drho', 'h', 'x', 'y', 'vx', 'vy', 'ax', 'ay', 'xsphx', 'xsphy', 'x0', 'y0', 'vx0', 'vy0', 'rho0'],
         'formats': [
+            np.bool,
             np.int8,
             np.double,
             np.double,

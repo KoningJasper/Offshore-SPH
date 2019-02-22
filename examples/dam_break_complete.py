@@ -57,7 +57,7 @@ def create_particles(N: int, mass: float):
 
 def main():
     # Main parameters
-    N = 10; rho0 = 1000.0; duration = 5.0
+    N = 50; rho0 = 1000.0; duration = 2.0
     XSPH = True; height = 25.0; plot = True
 
     # Create some particles
@@ -66,10 +66,10 @@ def main():
     particles = create_particles(N, mass)
 
     # Create the solver
-    kernel = CubicSpline()
-    method = WCSPH(height=height, rho0=rho0, num_particles=len(particles), useXSPH=XSPH)
+    kernel     = CubicSpline()
+    method     = WCSPH(height=height, rho0=rho0, num_particles=len(particles), useXSPH=XSPH)
     integrator = PEC(useXSPH=XSPH)
-    solver = Solver(method, integrator, kernel, duration)
+    solver     = Solver(method, integrator, kernel, duration, quick=True)
 
     # Add the particles
     solver.addParticles(particles)
@@ -84,12 +84,12 @@ def main():
     solver.timing()
 
     # Output
-    exportPath = f'{sys.path[0]}/dam-break-2d.npz'
+    exportPath = f'{sys.path[0]}\\dam-break-2d.hdf5'
     solver.save(exportPath)
 
     if plot == True:
         plt = Plot(exportPath, title='Dam Break (2D)', xmin=-3, xmax=81, ymin=-3, ymax=41)
-        plt.save(f'{sys.path[0]}/dam-break-2d.mp4')
+        plt.save(f'{sys.path[0]}\\dam-break-2d.mp4')
 
 if __name__ == '__main__':
     main()

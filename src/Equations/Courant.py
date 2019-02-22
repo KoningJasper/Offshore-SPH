@@ -1,6 +1,6 @@
 from numba import njit
 
-@njit(fastmath=True)
+@njit(fastmath=True, cache=True)
 def Courant(alpha, h, c):
     """
         Computes the courant condition.
