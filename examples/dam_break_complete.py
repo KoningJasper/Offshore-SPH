@@ -57,8 +57,8 @@ def create_particles(N: int, mass: float):
 
 def main():
     # Main parameters
-    N = 50; rho0 = 1000.0; duration = 2.0
-    XSPH = True; height = 25.0; plot = True
+    N = 10; rho0 = 1000.0; duration = 2.0
+    XSPH = True; height = 25.0; plot = False
 
     # Create some particles
     dA = 25 * 25 / N ** 2 # Area per particle. [m^2]
@@ -78,7 +78,7 @@ def main():
     solver.setup()
 
     # Run it!
-    solver.solve()
+    solver.run()
 
     # Output timing
     solver.timing()

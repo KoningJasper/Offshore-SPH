@@ -19,7 +19,9 @@ from src.Particle import Particle
 from src.Methods.Method import Method
 from src.Kernels.Kernel import Kernel
 from src.Integrators.Integrator import Integrator
-from src.Equations.Courant import Courant
+from src.Equations.TimeStep import TimeStep
+from src.Tools.NearNeighbours import NearNeighbours
+from src.Tools.SolverTools import computeProps, findActive
 
 class Solver:
     """
@@ -87,11 +89,15 @@ class Solver:
             Properties to include in the final export, more properties will require more storage.
         """
 
+        # Initialize classes
         self.method     = method
         self.integrator = integrator
         self.kernel     = kernel
-        self.duration   = duration
-        self.quick      = quick
+        self.nn         = NearNeighbours()
+
+        # Set properties
+        self.duration = duration
+        self.quick    = quick
 
         # Incremental write-out
         self.incrementalWriteout = incrementalWriteout
@@ -126,6 +132,15 @@ class Solver:
             self.dt_f = h5f['dt_f'][:]
 
     def addParticles(self, particles: List[Particle]):
+        """
+            Adds the particles to the simulation.
+
+            Parameters
+            ----------
+
+            particles: List[Particle]
+                particles to add to the simulation, should be a list of particle objects.    
+        """
         self.particles.extend(particles)
 
     def _convertParticles(self):
@@ -134,9 +149,9 @@ class Solver:
         self.num_particles = len(self.particles)
         self.particleArray = np.zeros(self.num_particles, dtype=particle_dtype)
         for i, p in enumerate(self.particles):
-            pA = self.particleArray[i]
+            pA          = self.particleArray[i]
             pA['label'] = get_label_code(p.label)
-            pA['m'] = p.m
+            pA['m']     = p.m
             pA['rho'] = p.rho
             pA['p'] = p.p
             pA['x'] = p.r[0]
@@ -148,7 +163,7 @@ class Solver:
         self._convertParticles()
 
         # Find the active ones.
-        self.num_particles, self.indexes = Solver._findActive(self.num_particles, self.particleArray)
+        self.num_particles, self.indexes = findActive(self.num_particles, self.particleArray)
 
         # Calc h
         (_, _, h) = self._nbrs()
@@ -170,69 +185,23 @@ class Solver:
 
         println(f'{Fore.GREEN}Setup complete.{Style.RESET_ALL}')
 
-    @staticmethod
     @jit(fastmath=True, cache=True)
-    def _findActive(J: int, pA: np.array) -> np.array:
-        a_i = np.zeros(J, dtype=np.bool)
-        a_c = 0
-        for j in prange(J):
-            if pA[j]['deleted'] == True:
-                a_i[j] = 0
-            else:
-                a_i[j] = 1
-                a_c += 1
-        return a_c, a_i
-
     def _minTimeStep(self) -> float:
+        """ Compute the minimum timestep, based on courant and force criteria. """
         start = perf_counter()
-        min_h, max_c, max_a2 = Solver.computeVars(self.num_particles, self.particleArray[self.indexes])
 
         gamma_c = 0.4
         gamma_f = 0.25
         if self.quick == True:
             gamma_f = 0.6
 
-        # Courant
-        self.dt_c.append(Solver.courantTimeStep(gamma_c, min_h, max_c))
-        self.dt_f.append(Solver.forceTimeStep(gamma_f, min_h, max_a2))
+        m, c, f = TimeStep.compute(self.num_particles, self.particleArray[self.indexes], gamma_c, gamma_f)
 
-        dt = min(self.dt_c[-1], self.dt_f[-1])
-        self.dt_a.append(dt)
+        # Store for later retrieval, making pretty plots or whatevs.
+        self.dt_c.append(c); self.dt_f.append(f); self.dt_a.append(m)
 
         self.timing_data['time_step'] += perf_counter() - start
-        return dt
-
-    @staticmethod
-    @njit(fastmath=True, cache=True)
-    def computeVars(J, pA):
-        h = []; c = []; a2 = []
-        for j in prange(J):
-            if pA[j]['label'] == ParticleType.Fluid:
-                h.append(pA[j]['h'])
-                c.append(pA[j]['c'])
-                a2.append(pA[j]['ax'] * pA[j]['ax'] + pA[j]['ay'] * pA[j]['ay'])
-
-        # Find the maximum this can not be done parallel.
-        min_h  = np.min(np.array(h))
-        max_c  = np.max(np.array(c))
-        max_a2 = np.max(np.array(a2))
-
-        return min_h, max_c, max_a2
-
-    @staticmethod
-    @njit('float64(float64, float64, float64)', fastmath=True, cache=True)
-    def courantTimeStep(cfl, h_min, c_max) -> float:
-        """ Timestep due to courant condition. """
-        return cfl * h_min / c_max
-
-    @staticmethod
-    @njit('float64(float64, float64, float64)', fastmath=True, cache=True)
-    def forceTimeStep(cfl, min_h, max_a) -> float:
-        """ Time-step due to force. """
-        if max_a < 1e-12:
-            return 1e10
-        else:
-            return cfl * math.sqrt(min_h / max_a)
+        return m
 
     @staticmethod
     @njit('float64[:](float64, int64, float64[:], float64[:])', fastmath=True, cache=True)
@@ -265,7 +234,7 @@ class Solver:
 
     @staticmethod
     @njit(fastmath=True, parallel=True, cache=True)
-    def _loop(h, dist, pA, evFunc, gradFunc, methodClass):
+    def _loop(h, dist, pA, evFunc, gradFunc, methodClass, nn):
         p = methodClass.compute_pressure(pA)
         c = methodClass.compute_speed_of_sound(pA)
 
@@ -275,7 +244,7 @@ class Solver:
             pA[i]['c'] = c[i]
 
             # Find near neighbours and their h and q
-            h_i, q_i, near_arr = _nearNbrs(i, h, dist[i, :])
+            h_i, q_i, near_arr = nn.near(i, h, dist[i, :])
 
             # Skip if got no neighbours, early exit.
             # Keep same properties, no acceleration.
@@ -284,17 +253,7 @@ class Solver:
 
             # Create computed properties
             # Fill the props
-            calcProps = _assignProps(i, pA, near_arr, h_i, q_i, dist[i, :])
-
-            # Kernel values
-            w = evFunc(calcProps['r'], calcProps['h'])
-            dw_x = gradFunc(calcProps['x'], calcProps['r'], calcProps['h'])
-            dw_y = gradFunc(calcProps['y'], calcProps['r'], calcProps['h'])
-
-            for j in prange(len(calcProps)):
-                calcProps[j]['w'] = w[j] # Not needed for density change
-                calcProps[j]['dw_x'] = dw_x[j]
-                calcProps[j]['dw_y'] = dw_y[j]
+            calcProps = computeProps(i, pA, near_arr, h_i, q_i, dist, evFunc, gradFunc)
 
             # Continuity
             pA[i]['drho'] = methodClass.compute_density_change(pA[i], calcProps)
@@ -325,13 +284,13 @@ class Solver:
         self.particleArray['drho'][self.indexes] = 0.0
 
         # Loop
-        self.particleArray[self.indexes] = Solver._loop(h, dist, self.particleArray[self.indexes], self.kernel.evaluate, self.kernel.gradient, self.method)
+        self.particleArray[self.indexes] = Solver._loop(h, dist, self.particleArray[self.indexes], self.kernel.evaluate, self.kernel.gradient, self.method, self.nn)
 
         self.timing_data['compute'] += perf_counter() - start
 
-    def solve(self):
+    def run(self):
         """
-            Solve the equations setup
+            Runs the SPH simulation
         """
         start_all = perf_counter()
 
@@ -418,7 +377,7 @@ class Solver:
                         if p['label'] == ParticleType.TempBoundary:
                             inds.append(i)
                             p['deleted'] = True
-                    self.num_particles, self.indexes = Solver._findActive(self.num_particles, self.particleArray)
+                    self.num_particles, self.indexes = findActive(self.num_particles, self.particleArray)
 
                     # Set the pressure to -1000.0 for deleted particles.
                     self.particleArray['p'][np.array(inds)] = -1e15
@@ -492,54 +451,5 @@ class Solver:
         if printLocation == True:
             println(f'Exported arrays to: "{location}".')
     
-# Moved to outside of class for numba
-@njit(fastmath=True, cache=True)
-def _assignProps(i: int, particleArray: np.array, near_arr: np.array, h_i: np.array, q_i: np.array, dist: np.array):
-    J = len(near_arr)
-
-    # Create empty array
-    calcProps = np.zeros(J, dtype=computed_dtype)
-
-    # Fill based on existing data.
-    for j in prange(J):
-        global_i = near_arr[j]
-        pA = particleArray[global_i]
-
-        # From self properties
-        calcProps[j]['p']   = pA['p']
-        calcProps[j]['m']   = pA['m']
-        #calcProps[near_i]['c']   = self.method.compute_speed_of_sound(pA)
-        calcProps[j]['rho'] = pA['rho']
-
-        # Pre-calculated properties
-        calcProps[j]['h'] = h_i[global_i] # average h, precalculated
-        calcProps[j]['q'] = q_i[global_i] # dist / h, precalculated
-        calcProps[j]['r'] = dist[global_i] # distance, precalculated
-
-        # Positional values
-        calcProps[j]['x']  = particleArray[i]['x'] - pA['x']
-        calcProps[j]['y']  = particleArray[i]['y'] - pA['y']
-        calcProps[j]['vx'] = particleArray[i]['vx'] - pA['vx']
-        calcProps[j]['vy'] = particleArray[i]['vy'] - pA['vy']
-    # END_LOOP
-    return calcProps
-
-@njit(fastmath=True, cache=True)
-def _nearNbrs(i: int, h: np.array, dist: np.array):
-    # Create empty complete matrices
-    q_i = np.zeros_like(h)
-    h_i = np.zeros_like(h)
-    near = [] # indices of near particles
-
-    # Check each particle.
-    J = len(h)
-    for j in prange(J):
-        h_i[j] = 0.5 * (h[i] + h[j]) # averaged h.
-        q_i[j] = dist[j] / h_i[j] # q (norm-dist)
-
-        if q_i[j] <= 3.0:
-            near.append(j)
-    return (h_i, q_i, np.array(near))
-
 def println(text: str):
     print(f'\n{text}')
