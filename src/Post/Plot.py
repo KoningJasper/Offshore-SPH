@@ -197,13 +197,12 @@ class Plot():
         self.txtItem.translate(350.0 - xrange, 90.0)
 
         # make colormap
-        c_range = np.linspace(0, 1, num=10) * (np.max(self.p[0])) / 1000
-
+        c_range = np.linspace(0, 1, num=10)
         colors = [(0.0, 1.0, 1.0, 0.0)] # Not visible color, to hide particles with p=-1000
         for cc in c_range:
             colors.append([cc, 0.0, 1 - cc, 1.0]) # Blue to red color spectrum
         
-        stops = np.round(c_range, 0)
+        stops = np.round(c_range * (np.max(self.p[0])) / 1000, 0)
         stops = np.insert(stops, 0, -1e14 / 1000)
         self.cm = pg.ColorMap(stops, np.array(colors))
 

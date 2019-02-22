@@ -5,16 +5,26 @@ from src.Common import ParticleType
 from src.Integrators.Integrator import Integrator
 
 spec = [
-    ('useXSPH', boolean)
+    ('useXSPH', boolean),
+    ('strict', boolean)
 ]
 @jitclass(spec)
 class PEC():
-    """
-    The predictor-corrector as described by Monaghan in his 1992 paper.
-    """
+    def __init__(self, useXSPH: bool = True, strict: bool = True):
+        """
+            The predictor-corrector as described by Monaghan in his 1992 paper.
 
-    def __init__(self, useXSPH: bool = True):
+            Parameters
+            ----------
+
+            useXSPH: bool
+                Should XSPH correction be used.
+
+            strict: bool
+                Should the density be always positive.
+        """
         self.useXSPH = useXSPH
+        self.strict  = strict
         
     def isMultiStage(self) -> bool:
         return False
@@ -43,24 +53,10 @@ class PEC():
             # Do these for all
             pA[j]['rho0'] = pA[j]['rho']
             pA[j]['rho']  = pA[j]['rho'] + 0.5 * dt * pA[j]['drho']
+
+            if self.strict and pA[j]['rho'] < 1000.0:
+                pA[j]['rho'] = 1000.0
         return pA
-
-    def correct(self, dt: float, p: np.array, damping: float) -> np.array:
-        seq = [('x', 'xsphx'), ('y', 'xsphy'), ('vx', 'ax'), ('vy', 'ay'), ('rho', 'drho')]
-        for end, acc in seq:
-            # Skip if not fluid
-            if (end != 'rho') and (p['label'] != ParticleType.Fluid):
-                continue
-
-            # Correct the midpoint
-            if end == 'vx' or end == 'vy':
-                mid = (p[end + '0'] + 0.5 * dt * p[acc]) / (1 + 0.5 * damping)
-            else:
-                mid = p[end + '0'] + 0.5 * dt * p[acc]
-
-            # Compute end
-            p[end] = 2 * mid - p[end + '0']
-        return p
 
     def correct(self, dt: float, pA: np.array, damping: float) -> np.array:
         J = len(pA)
@@ -86,4 +82,8 @@ class PEC():
             # Do these for all
             mid_rho = pA[j]['rho0'] + 0.5 * dt * pA[j]['drho']
             pA[j]['rho'] = 2 * mid_rho - pA[j]['rho0']
+
+            # Enforce density
+            if self.strict and pA[j]['rho'] < 1000.0:
+                pA[j]['rho'] = 1000.0
         return pA

@@ -47,6 +47,7 @@ class Solver:
     export: Dict[str, List[np.array]] = {} 
 
     t_step: int
+    settleTime: float = 0.0
     
     dt_a: List[float] = []
     dt_c: List[float] = []
@@ -382,8 +383,8 @@ class Solver:
                     # Set the pressure to -1000.0 for deleted particles.
                     self.particleArray['p'][np.array(inds)] = -1e15
 
-                    # Set the positions etc
-
+                    # Set settling time
+                    self.settleTime = t
                     
                 # Stop damping after 100-th time steps.
                 self.damping = 0.0
@@ -444,6 +445,7 @@ class Solver:
             h5f.create_dataset('dt_a', data=self.dt_a, shuffle=True, compression="gzip")
             h5f.create_dataset('dt_c', data=self.dt_c, shuffle=True, compression="gzip")
             h5f.create_dataset('dt_f', data=self.dt_f, shuffle=True, compression="gzip")
+            h5f.create_dataset('settleTime', data=np.array(self.settleTime))
 
             for key in self.exportProperties:
                 h5f.create_dataset(key, data=np.stack(self.export[key]), shuffle=True, compression="gzip")
