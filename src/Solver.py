@@ -440,13 +440,13 @@ class Solver:
         """
         # Export hdf5 file
         with h5py.File(location, 'w') as h5f:
-            h5f.create_dataset('particleArray', data=self.particleArray)
-            h5f.create_dataset('dt_a', data=self.dt_a)
-            h5f.create_dataset('dt_c', data=self.dt_c)
-            h5f.create_dataset('dt_f', data=self.dt_f)
+            h5f.create_dataset('particleArray', data=self.particleArray, shuffle=True, compression="gzip")
+            h5f.create_dataset('dt_a', data=self.dt_a, shuffle=True, compression="gzip")
+            h5f.create_dataset('dt_c', data=self.dt_c, shuffle=True, compression="gzip")
+            h5f.create_dataset('dt_f', data=self.dt_f, shuffle=True, compression="gzip")
 
             for key in self.exportProperties:
-                h5f.create_dataset(key, data=np.stack(self.export[key]))
+                h5f.create_dataset(key, data=np.stack(self.export[key]), shuffle=True, compression="gzip")
 
         if printLocation == True:
             println(f'Exported arrays to: "{location}".')
