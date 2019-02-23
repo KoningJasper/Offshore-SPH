@@ -30,7 +30,7 @@ class test_numba_kernel(unittest.TestCase):
         n_t: float = 0.
 
         # Pre-compile
-        kernel.evaluate(np.array(d), d * 1.3)
+        kernel.evaluate(np.array(d[0, :]), d[0, :] * 1.3)
 
         wij_o_total: np.array = np.zeros([len(r), len(r) - 1])
         wij_n_total: np.array = np.zeros([len(r), len(r) - 1])

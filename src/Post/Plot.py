@@ -1,10 +1,10 @@
-import sys
-import tempfile
-import subprocess
+import sys, tempfile, subprocess, math
+from typing import List, Tuple
 from time import perf_counter
 
 # External
 import numpy as np
+import h5py
 from tqdm import tqdm
 from colorama import Fore, Style
 import pyqtgraph as pg
@@ -26,7 +26,7 @@ class Plot():
             ----------
 
             file: str
-                path to the export (.npz) file
+                path to the export (.hdf5) file
 
             slowdown: float
                 The amount of slow down applied to the animation. A slowdown of 1.0 is equal to actual speed.
@@ -97,49 +97,37 @@ class Plot():
         self.tempdir = tempfile.TemporaryDirectory()
         print(f'Exporting frames to directory: {self.tempdir.name}')
 
-        t: float = 0
-        dt_max: float = 1 / self.fps # Maximum delta between frames
-        dt_c: float = 0.0 # Current delta
-        frames: int = 0 # Total number of exported frames.
-        for frame in tqdm(range(self.steps - 1), desc='Exporting frames'):
-            dt_c += self.dts[frame]
+        frames, t_series = self._calcFrames()
+        for i, frame in tqdm(enumerate(frames), desc='Exporting frames', total=(len(frames) - 1), unit='frame'):
+            # Draw
+            self._update_frame(frame, t_series[i])
 
-            # Perform an export if 
-            if dt_c > dt_max or frame == 0 or self.exportAllFrames == True:
-                # Draw
-                self._update_frame(frame, t)
-
-                # Export to temp
-                self._export(frames)
-
-                dt_c = 0.0
-                frames += 1
-
-            # Increment time
-            t += self.dts[frame]
+            # Export to temp
+            self._export(i)
 
         print(f'{Fore.GREEN}Frame export complete.{Style.RESET_ALL}')
-        print(f'Exported a total of {Fore.YELLOW}{frames}{Style.RESET_ALL} frames.')
+        print(f'Exported a total of {Fore.YELLOW}{len(frames)}{Style.RESET_ALL} frames.')
         print(f'Converting to animation')
         self._export_mp4()
 
         end = perf_counter() - start
         print(f'Rendered to file in {Fore.GREEN}{end:f}{Style.RESET_ALL} [s]')
 
+        print(f'{Fore.YELLOW}Plot will now throw an error that can be ignored.{Style.RESET_ALL}')
+
     # Private methods down from here.
 
     def _load(self):
         """ Loads the required parameters from the file. """
         
-        f = np.load(self.input)
-        self.data = f['data']
-        self.dts = f['dts']
+        with h5py.File(self.input, 'r') as h5f:
+            self.x   = h5f['x'][:]
+            self.y   = h5f['y'][:]
+            self.p   = h5f['p'][:]
+            self.dts = h5f['dt_a'][:]
 
-
-        # Compute average frames per second.
-        self.steps    = len(self.data)
+        # Compute duration
         self.duration = np.sum(self.dts)
-        self.fps      = np.round(self.steps / self.duration / self.slowdown) # Frames per second
 
     def _export(self, frame: int):
         self.exporter = pg.exporters.ImageExporter(self.pw.plotItem)
@@ -149,14 +137,33 @@ class Plot():
         frame_str = "{:06}".format(frame)
         self.exporter.export(f'{self.tempdir.name}/export_{frame_str}.png')
 
+    def _calcFrames(self) -> Tuple[List[int], List[int]]:
+        # Compute the target times, with avg. frame-rate.
+        total_frames = math.ceil(self.duration * self.slowdown * self.video_fps)
+        targets = np.linspace(0, 1, num=total_frames) * self.duration
+
+        # Compute the frames to export
+        t = 0; exp_frames = 0
+        frames = []; t_series = []
+        for frame in range(len(self.x)):
+            if t >= targets[exp_frames]:
+                frames.append(frame)
+                t_series.append(t)
+                exp_frames += 1
+            t += self.dts[frame]
+
+        # Add the final frame
+        frames.append(len(self.x) - 1)
+        t_series.append(self.duration)
+        
+        return frames, t_series
+
     def _update_frame(self, frame: int, time: float) -> None:
-        self.pl.setData(x=self.data[frame]['x'], y=self.data[frame]['y'], symbolBrush=self.cm.map(self.data[frame]['p'] / 1000, 'qcolor'), symbolSize=self.sZ)
+        self.pl.setData(x=self.x[frame], y=self.y[frame], symbolBrush=self.cm.map(self.p[frame] / 1000, 'qcolor'), symbolSize=self.sZ)
         self.txtItem.setText(f't = {time:f} [s]')
 
     def _init_plot(self):
         """ Initialize the plot. """
-        start: float = perf_counter()
-
         # use less ink
         pg.setConfigOption('background', 'w')
         pg.setConfigOption('foreground', 'k')
@@ -169,16 +176,16 @@ class Plot():
             self.pw.setXRange(self.xmin, self.xmax)
         else:
             # Determine automatically
-            xmin = self.data[0]['x'].min() - 1
-            xmax = self.data[0]['x'].max() + 1
+            xmin = self.x[0].min() - 1
+            xmax = self.x[0].max() + 1
             self.pw.setXRange(xmin, xmax)
 
         if (self.ymin and self.ymax):
             self.pw.setYRange(self.ymin, self.ymax)
         else:
             # Determine automatically
-            ymin = self.data[0]['y'].min() - 1
-            ymax = self.data[0]['y'].max() + 1
+            ymin = self.y[0].min() - 1
+            ymax = self.y[0].max() + 1
             self.pw.setYRange(ymin, ymax)
 
         # Text
@@ -191,22 +198,26 @@ class Plot():
 
         # make colormap
         c_range = np.linspace(0, 1, num=10)
-        colors = []
+        colors = [(0.0, 1.0, 1.0, 0.0)] # Not visible color, to hide particles with p=-1000
         for cc in c_range:
             colors.append([cc, 0.0, 1 - cc, 1.0]) # Blue to red color spectrum
-        stops = np.round(c_range * (np.max(self.data[0]['p'])) / 1000, 0)
+        
+        stops = np.round(c_range * (np.max(self.p[0])) / 1000, 0)
+        stops = np.insert(stops, 0, -1e14 / 1000)
         self.cm = pg.ColorMap(stops, np.array(colors))
+
+        cbarMap = pg.ColorMap(stops[1:], np.array(colors)[1:])
         
         # make colorbar, placing by hand
         # TODO: Place color bar automatically instead of manually.
-        cb = ColorBar(cmap=self.cm, width=10, height=200, label='Pressure [kPa]')
+        cb = ColorBar(cmap=cbarMap, width=10, height=200, label='Pressure [kPa]')
         self.pw.scene().addItem(cb)
         cb.translate(610.0, 90.0)
 
         # Initial points
-        num = len(self.data[0]['x'])
+        num = len(self.x[0])
         self.sZ = (40 * (2 / (num ** 0.5)))
-        self.pl = self.pw.plot(self.data[0]['x'], self.data[0]['y'], pen=None, symbol='o', symbolBrush=self.cm.map(self.data[0]['p'] / 1000, 'qcolor'), symbolPen=None, symbolSize=self.sZ)
+        self.pl = self.pw.plot(self.x[0], self.y[0], pen=None, symbol='o', symbolBrush=self.cm.map(self.p[0] / 1000, 'qcolor'), symbolPen=None, symbolSize=self.sZ)
 
     def _export_mp4(self):
         """ Exports gathered frames to mp4 file using ffmpeg. """
