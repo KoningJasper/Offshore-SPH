@@ -20,7 +20,7 @@ from src.Methods.Method import Method
 from src.Kernels.Kernel import Kernel
 from src.Integrators.Integrator import Integrator
 from src.Equations.TimeStep import TimeStep
-from src.Tools.NearNeighbours import NearNeighbours
+from src.Tools.NearNeighbours import NearNeighboursCell
 from src.Tools.SolverTools import computeProps, findActive
 
 class Solver:
@@ -94,7 +94,7 @@ class Solver:
         self.method     = method
         self.integrator = integrator
         self.kernel     = kernel
-        self.nn         = NearNeighbours()
+        self.nn         = NearNeighboursCell(alpha=2.0)
 
         # Set properties
         self.duration = duration
@@ -167,7 +167,7 @@ class Solver:
         self.num_particles, self.indexes = findActive(self.num_particles, self.particleArray)
 
         # Calc h
-        (_, _, h) = self._nbrs()
+        h = Solver.computeH(1.3, self.num_particles, self.particleArray['m'][self.indexes], self.particleArray['rho'][self.indexes])
         self.particleArray['h'][self.indexes] = h
 
         # Initialize particles
@@ -186,7 +186,7 @@ class Solver:
 
         println(f'{Fore.GREEN}Setup complete.{Style.RESET_ALL}')
 
-    @jit(fastmath=True, cache=True)
+    @jit(fastmath=True)
     def _minTimeStep(self) -> float:
         """ Compute the minimum timestep, based on courant and force criteria. """
         start = perf_counter()
@@ -205,7 +205,7 @@ class Solver:
         return m
 
     @staticmethod
-    @njit('float64[:](float64, int64, float64[:], float64[:])', fastmath=True, cache=True)
+    @njit('float64[:](float64, int64, float64[:], float64[:])', fastmath=True)
     def computeH(sigma: float, J: int, m: np.array, rho: np.array):
         """ Compute (dynamic) h size, based on Monaghan 2005. """
         d = 2 # 2 Dimensions (x, y)
@@ -216,26 +216,9 @@ class Solver:
         
         return h
 
-    @jit(fastmath=True, cache=True)
-    def _nbrs(self):
-        start = perf_counter()
-
-        pA = self.particleArray[self.indexes]
-
-        # Distance and neighbourhood
-        r = np.transpose(np.vstack((pA['x'], pA['y'])))
-        dist = cdist(r, r, 'euclidean')
-
-        # Distance of closest particle time 1.3
-        h = Solver.computeH(1.3, self.num_particles, pA['m'], pA['rho'])
-        #h: np.array = 1.3 * np.ma.masked_values(dist, 0.0, copy=False).min(1)
-
-        self.timing_data['neighbour_hood'] += perf_counter() - start
-        return (r, dist, h)
-
     @staticmethod
-    @njit(fastmath=True, parallel=True, cache=True)
-    def _loop(h, dist, pA, evFunc, gradFunc, methodClass, nn):
+    @njit(fastmath=True)
+    def _loop(pA, evFunc, gradFunc, methodClass, nn):
         p = methodClass.compute_pressure(pA)
         c = methodClass.compute_speed_of_sound(pA)
 
@@ -245,7 +228,7 @@ class Solver:
             pA[i]['c'] = c[i]
 
             # Find near neighbours and their h and q
-            h_i, q_i, near_arr = nn.near(i, h, dist[i, :])
+            near_arr = nn.near(int(i))
 
             # Skip if got no neighbours, early exit.
             # Keep same properties, no acceleration.
@@ -254,7 +237,7 @@ class Solver:
 
             # Create computed properties
             # Fill the props
-            calcProps = computeProps(i, pA, near_arr, h_i, q_i, dist, evFunc, gradFunc)
+            calcProps = computeProps(i, pA, near_arr, evFunc, gradFunc)
 
             # Continuity
             pA[i]['drho'] = methodClass.compute_density_change(pA[i], calcProps)
@@ -274,9 +257,12 @@ class Solver:
         start = perf_counter()
 
         # Neighbourhood
-        (_, dist, h) = self._nbrs()
+        start = perf_counter()
+        self.nn.update(self.particleArray[self.indexes])
+        self.timing_data['neighbour_hood'] += perf_counter() - start
 
         # Set h
+        h = Solver.computeH(1.3, self.num_particles, self.particleArray['m'][self.indexes], self.particleArray['rho'][self.indexes])
         self.particleArray['h'][self.indexes] = h
 
         # Re-set accelerations
@@ -285,7 +271,7 @@ class Solver:
         self.particleArray['drho'][self.indexes] = 0.0
 
         # Loop
-        self.particleArray[self.indexes] = Solver._loop(h, dist, self.particleArray[self.indexes], self.kernel.evaluate, self.kernel.gradient, self.method, self.nn)
+        self.particleArray[self.indexes] = Solver._loop(self.particleArray[self.indexes], self.kernel.evaluate, self.kernel.gradient, self.method, self.nn)
 
         self.timing_data['compute'] += perf_counter() - start
 
