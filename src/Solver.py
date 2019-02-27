@@ -8,7 +8,7 @@ import h5py
 from colorama import Fore, Style
 from prettytable import PrettyTable
 from tqdm import tqdm
-from scipy.spatial.distance import cdist
+from scipy.spatial import cKDTree
 from numba import prange, jit, njit, cfunc
 from typing import List, Tuple, Dict
 from time import perf_counter
@@ -20,7 +20,10 @@ from src.Methods.Method import Method
 from src.Kernels.Kernel import Kernel
 from src.Integrators.Integrator import Integrator
 from src.Equations.TimeStep import TimeStep
-from src.Tools.NearNeighbours import NearNeighboursCell
+from src.Tools.NearNeighbours import NearNeighbours
+from src.Tools.NNCellSearch import NNCellSearch
+from src.Tools.NNEnumerate import NNEnumerate
+from src.Tools.NNTree import NNTree
 from src.Tools.SolverTools import computeProps, findActive
 
 class Solver:
@@ -32,6 +35,8 @@ class Solver:
     integrator: Integrator
     kernel: Kernel
     duration: float
+    tree: cKDTree
+    nn: NearNeighbours
     dt: float
 
     # Particle information
@@ -94,7 +99,6 @@ class Solver:
         self.method     = method
         self.integrator = integrator
         self.kernel     = kernel
-        self.nn         = NearNeighboursCell(alpha=2.0)
 
         # Set properties
         self.duration = duration
@@ -111,9 +115,12 @@ class Solver:
         self.timing_data['storage']              = 0.0
         self.timing_data['integrate_correction'] = 0.0
         self.timing_data['integrate_prediction'] = 0.0
-        self.timing_data['compute']              = 0.0
+        self.timing_data['compute_h']            = 0.0
+        self.timing_data['compute_loop']         = 0.0
         self.timing_data['time_step']            = 0.0
         self.timing_data['neighbour_hood']       = 0.0
+        self.timing_data['neighbour_arr']        = 0.0
+        self.timing_data['neighbour_find']       = 0.0
 
     def load(self, file: str):
         """
@@ -218,7 +225,7 @@ class Solver:
 
     @staticmethod
     @njit(fastmath=True)
-    def _loop(pA, evFunc, gradFunc, methodClass, nn):
+    def _loop(pA, evFunc, gradFunc, methodClass, nears):
         p = methodClass.compute_pressure(pA)
         c = methodClass.compute_speed_of_sound(pA)
 
@@ -228,7 +235,7 @@ class Solver:
             pA[i]['c'] = c[i]
 
             # Find near neighbours and their h and q
-            near_arr = nn.near(int(i))
+            near_arr = nears[i][nears[i] > -1]
 
             # Skip if got no neighbours, early exit.
             # Keep same properties, no acceleration.
@@ -254,26 +261,78 @@ class Solver:
 
     def _compute(self):
         """ Compute the accelerations, velocities, etc. """
-        start = perf_counter()
-
-        # Neighbourhood
-        start = perf_counter()
-        self.nn.update(self.particleArray[self.indexes])
-        self.timing_data['neighbour_hood'] += perf_counter() - start
 
         # Set h
+        start = perf_counter()
         h = Solver.computeH(1.3, self.num_particles, self.particleArray['m'][self.indexes], self.particleArray['rho'][self.indexes])
         self.particleArray['h'][self.indexes] = h
+        self.timing_data['compute_h'] += perf_counter() - start
 
         # Re-set accelerations
         self.particleArray['ax'][self.indexes]   = 0.0
         self.particleArray['ay'][self.indexes]   = 0.0
         self.particleArray['drho'][self.indexes] = 0.0
 
-        # Loop
-        self.particleArray[self.indexes] = Solver._loop(self.particleArray[self.indexes], self.kernel.evaluate, self.kernel.gradient, self.method, self.nn)
+        arr = self._nbr()
+        #arr = self._nbrCell()
 
-        self.timing_data['compute'] += perf_counter() - start
+        # Loop
+        start = perf_counter()
+        self.particleArray[self.indexes] = Solver._loop(self.particleArray[self.indexes], self.kernel.evaluate, self.kernel.gradient, self.method, arr)
+        self.timing_data['compute_loop'] += perf_counter() - start
+
+    def _nbrCell(self) -> np.array:
+        start = perf_counter()
+        nn = NNCellSearch(alpha=2.0, strict=False)
+        nn.update(self.particleArray[self.indexes])
+        self.timing_data['neighbour_hood'] += perf_counter() - start
+
+        start = perf_counter()
+        near = [[] for _ in range(self.num_particles)] # Initialize
+        for p in range(self.num_particles):
+            near[p] = nn.near(p, self.particleArray[self.indexes])
+        self.timing_data['neighbour_find'] += perf_counter() - start
+
+        start     = perf_counter()
+        lens      = [len(l) for l in near]
+        maxlen    = max(lens)
+        arr       = np.full((self.num_particles, maxlen), -1, dtype=np.int64)
+        mask      = np.arange(maxlen) < np.array(lens)[:,None]
+        arr[mask] = np.concatenate([list(_) for _ in near])
+        self.timing_data['neighbour_arr'] += perf_counter() - start
+
+        return arr
+
+    def _nbr(self) -> np.array:
+        # Neighbourhood
+        start     = perf_counter()
+        r         = np.stack((self.particleArray[self.indexes]['x'], self.particleArray[self.indexes]['y']), axis=-1)
+        self.tree = cKDTree(r)
+        self.timing_data['neighbour_hood'] += perf_counter() - start
+
+        # Perform a naive search first.
+        start = perf_counter()
+        near = [[] for _ in range(self.num_particles)]
+        for j in range(self.num_particles):
+            near[j] = self.tree.query_ball_point(r[j], 3.0 * self.particleArray[self.indexes]['h'][j])
+        self.timing_data['neighbour_find'] += perf_counter() - start
+
+        # Convert to array
+        start = perf_counter()
+        arr   = Solver._nbrArr(self.num_particles, near)
+        self.timing_data['neighbour_arr'] += perf_counter() - start
+
+        return arr
+
+    @staticmethod
+    def _nbrArr(J, near):
+        lens      = [len(l) for l in near]
+        maxlen    = np.max(lens)
+        arr       = np.full((J, maxlen), -1, dtype=np.int64)
+        mask      = np.arange(maxlen) < np.array(lens)[:,None]
+        arr[mask] = np.concatenate([list(_) for _ in near])
+
+        return arr
 
     def run(self):
         """

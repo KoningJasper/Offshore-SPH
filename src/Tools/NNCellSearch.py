@@ -1,15 +1,16 @@
 import numpy as np
 from typing import Tuple
-from math import ceil, floor, trunc
+from math import ceil, floor, sqrt
 from numba import njit, prange, jit, jitclass
-from numba import int64, float64
-from NearNeighbours import NearNeighbours
+from numba import int64, float64, boolean
+from src.Tools.NearNeighbours import NearNeighbours
 
 spec = [
     ('pCells', int64[:, :]),
     ('cellCache', int64[:, :]),
     
     ('alpha', float64),
+    ('strict', boolean),
     ('cells', int64),
 
     # Domain
@@ -23,7 +24,7 @@ spec = [
 ]
 @jitclass(spec)
 class NNCellSearch(NearNeighbours):
-    def __init__(self, alpha: float):
+    def __init__(self, alpha: float, strict: bool):
         """
             Creates a near neighbourhood searcher, using a cell-search algorithm.
 
@@ -33,7 +34,8 @@ class NNCellSearch(NearNeighbours):
             alpha: float
                 scaling factor for box-size, default 2.0
         """
-        self.alpha = alpha
+        self.alpha  = alpha
+        self.strict = strict
 
     def update(self, pA: np.array):
         """
@@ -48,7 +50,7 @@ class NNCellSearch(NearNeighbours):
         self._calcDomain(pA)
         self._assignCells(pA)
         
-    def near(self, i: int):
+    def near(self, i: int, pA: np.array):
         """
             Find the neighbours near to a certain particle at index i.
 
@@ -72,14 +74,18 @@ class NNCellSearch(NearNeighbours):
         own_x = self.pCells[i, 0]
         own_y = self.pCells[i, 1]
 
+        # Calculate h factor, number of cells to take.
+        h = pA[i]['h']
+        h_fac = ceil(h / self.h)
+
         # Get list of neighbouring cells
         indexes = []
-        for x_ in [-1, 0, 1]:
+        for x_ in range(-h_fac, h_fac + 1, 1):
             x = own_x + x_
             if x < 0 or x > self.xbins:
                     continue
 
-            for y_ in [-1, 0, 1]:
+            for y_ in range(-h_fac, h_fac + 1, 1):
                 y = own_y + y_
 
                 if y < 0 or y > self.ybins:
@@ -91,7 +97,20 @@ class NNCellSearch(NearNeighbours):
                 
         # Clip -1
         indexes = np.array(indexes)
-        return indexes[indexes > -1]
+        pot = indexes[indexes > -1]
+
+        if self.strict == True:
+            # Compute distance to only keep actual
+            act = []
+            for p in pot:
+                r  = sqrt((pA['x'][i] - pA['x'][p]) ** 2 + (pA['y'][i] - pA['y'][p]) ** 2)
+                hi = 0.5 * (pA['h'][i] + pA['h'][p])
+                q  = r / hi
+                if q <= 3.0:
+                    act.append(p)
+            return np.array(act)
+        else:
+            return pot
 
     def _calcDomain(self, pA: np.array):
         """ Calculates the domain. """
@@ -102,7 +121,8 @@ class NNCellSearch(NearNeighbours):
         self.ymin = pA['y'].min()
         self.ymax = pA['y'].max()
 
-        self.h = pA['h'].max()
+
+        self.h = max(1, pA['h'].min())
 
         # Calculate the number of bins
         self.xbins = ceil((self.xmax - self.xmin) / (self.alpha * self.h))
