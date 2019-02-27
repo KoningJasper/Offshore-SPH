@@ -1,24 +1,29 @@
 import numpy as np
-from math import floor, ceil
+from math import floor, ceil, sqrt
+from numba import jitclass, float64, int64, prange
 from typing import List
+from src.Tools.NearNeighbours import NearNeighbours
 
-class NNLinkedList():
-    heads: np.array
-    nexts: np.array
-    shifts: np.array
 
-    xmin: float
-    xmax: float
-    ymin: float
-    ymax: float
-    cell_size: float
-    scale: float
-    n_cells: int
-    cells_per_dim: List[int]
+spec = [
+    ('heads', int64[:]),
+    ('nexts', int64[:]),
+    ('shifts', int64[:]),
 
+    ('xmin', float64),
+    ('xmax', float64),
+    ('ymin', float64),
+    ('ymax', float64),
+    ('cell_size', float64),
+    ('scale', float64),
+    ('n_cells', int64),
+    ('ncells_per_dim', int64[:])
+]
+@jitclass(spec)
+class NNLinkedList(NearNeighbours):
     def __init__(self):
         self.scale = 2.0
-        self.shifts = np.array([-1, 0, 1])
+        self.shifts = np.array([-1, 0, 1], dtype=np.int64)
 
     def update(self, pA: np.array):
         self.init(pA)
@@ -26,7 +31,6 @@ class NNLinkedList():
 
     def init(self, pA: np.array):
         """ Initialize the arrays. """
-
         # Find mins and maxes
         self.xmin = pA['x'].min()
         self.xmax = pA['x'].max()
@@ -60,15 +64,15 @@ class NNLinkedList():
         ncx = ceil( cell_size1 * (self.xmax - self.xmin) )
         ncy = ceil( cell_size1 * (self.ymax - self.ymin) )
 
-        if ncx < 0 or ncy < 0:
-            msg = 'LinkedListNNPS: Number of cells is negative (%s, %s).' % (ncx, ncy)
-            raise RuntimeError(msg)
+        # if ncx < 0 or ncy < 0:
+        #     msg = 'LinkedListNNPS: Number of cells is negative (%s, %s).' % (ncx, ncy)
+        #     raise RuntimeError(msg)
 
-        ncx = 1 if ncx == 0 else ncx # max(1, ncx)
-        ncy = 1 if ncy == 0 else ncy
+        ncx = max(1, ncx)
+        ncy = max(1, ncy)
 
         # number of cells along each coordinate direction
-        self.ncells_per_dim = [ncx, ncy]
+        self.ncells_per_dim = np.array([ncx, ncy], dtype=np.int64)
 
         # total number of cells
         _ncells = ncx * ncy
@@ -93,35 +97,40 @@ class NNLinkedList():
 
         # Find unflattened id of particle
         _cid_x, _cid_y = self.find_cell_id_raw(x - self.xmin, y - self.ymin, self.cell_size)
-
-        # Search radius
-        hi2 = (self.scale * pA[i]['h']) ** 2
         
         # Search through neighbouring cells
         nbrs = []
-        for ix in range(3):
-            for iy in range(3):
+        for ix in prange(3):
+            for iy in prange(3):
                 cid_x = _cid_x + self.shifts[ix]
                 cid_y = _cid_y + self.shifts[iy]
 
                 # Get cell index
-                cell_index = self.get_valid_cell_index(cid_x, cid_y, self.cells_per_dim, self.n_cells)
+                cell_index = self.get_valid_cell_index(cid_x, cid_y, self.ncells_per_dim, self.n_cells)
 
                 if cell_index > -1:
                     # get the first particle and begin iteration
                     _next = self.heads[ cell_index ]
                     while( _next != -1 ):
-                        hj2 = (self.scale * pA[_next]['h']) ** 2
+                        # Compute the distance
                         xij2 = self.norm2(pA[_next]['x'] - x, pA[_next]['y'] - y)
+                        r    = sqrt(xij2)
 
-                        # select neighbor
-                        if ( (xij2 < hi2) or (xij2 < hj2) ):
+                        # Compute q = r/h
+                        h_ij = 0.5 * (pA[_next]['h'] + pA[i]['h'])
+                        q_ij = r / h_ij
+
+                        # select neighbour
+                        if (q_ij <= 3.0):
                             nbrs.append(_next)
 
                         # get the 'next' particle in this cell
                         _next = self.nexts[_next]
 
-        return nbrs
+        # Pad the array to pA length.
+        arr = np.full(len(pA), -1, dtype=np.int64)
+        arr[0:len(nbrs)] = np.array(nbrs)
+        return arr
 
     def norm2(self, x, y):
         return x * x + y * y

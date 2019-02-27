@@ -16,7 +16,7 @@ class NearNeighbours():
         pass
 
     @abc.abstractmethod
-    def near(self, i: int):
+    def near(self, i: int, pA: np.array):
         """
             Find the neighbours near to a certain particle at index i.
 
