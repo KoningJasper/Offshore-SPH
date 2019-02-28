@@ -6,8 +6,9 @@ from src.Tools.NearNeighbours import NearNeighbours
 
 
 spec = [
+    ('boxes', int64[:, :]),
     ('heads', int64[:]),
-    ('nexts', int64[:]),
+
     ('shifts', int64[:]),
 
     ('xmin', float64),
@@ -21,10 +22,12 @@ spec = [
     ('strict', boolean),
 ]
 @jitclass(spec)
-class NNLinkedList(NearNeighbours):
+class NNCellList(NearNeighbours):
     def __init__(self, scale: float, strict: bool):
         """
-            Initialize a new Linked List Neighbourhood finder.
+            Initialize a cell list finder, this does not use a linked list, but instead pre-allocates all the particles in an array. This allows faster look-up but increases construction time and memory consumption.
+
+            This searcher returns all the particles in the box, it does not enforce strict radius checking.
 
             Parameters
             ---------
@@ -56,14 +59,15 @@ class NNLinkedList(NearNeighbours):
         self.cell_size = self.get_cell_size(pA)
         self.n_cells   = self.get_number_of_cells(pA)
 
-        # Create the arrays
-        self.heads = np.full(self.n_cells, -1, dtype=np.int64)
-        self.nexts = np.full(len(pA), -1, dtype=np.int64)
+        # Create the array
+        J = len(pA)
+        self.heads = np.full(J, -1, dtype=np.int64)
+        
+        # A box can at most contain all the particles (J), however, this is severe worst case scenario and might be reduced in the future
+        self.boxes = np.full((self.n_cells, J), -1, dtype=np.int64)
 
     def get_cell_size(self, pA: np.array):
-        # TODO: Use looped max
         hmax = pA['h'].max()
-
         cell_size = hmax * self.scale
 
         if cell_size < 1e-6:
@@ -72,7 +76,7 @@ class NNLinkedList(NearNeighbours):
         return cell_size
 
     def get_number_of_cells(self, pA: np.array):
-        cell_size1 = 1./ self.cell_size
+        cell_size1 = 1. / self.cell_size
 
         # calculate the number of cells.
         ncx = ceil( cell_size1 * (self.xmax - self.xmin) )
@@ -90,7 +94,13 @@ class NNLinkedList(NearNeighbours):
 
     def bin(self, pA: np.array):
         """ Bin the particles. """
-        for i in prange(len(pA)):
+        J = len(pA)
+
+        # Create empty box list
+        boxIndex = np.zeros(self.n_cells, dtype=np.int32)
+
+        # Compute the bins
+        for i in prange(J):
             x = pA[i]['x'] - self.xmin
             y = pA[i]['y'] - self.ymin
 
@@ -99,8 +109,25 @@ class NNLinkedList(NearNeighbours):
             _cid = self.flatten_raw(_cid_x, _cid_y, self.ncells_per_dim)
 
             # Insert
-            self.nexts[i]    = self.heads[_cid]
-            self.heads[_cid] = i
+            self.heads[i] = _cid
+            self.boxes[_cid][boxIndex[_cid]] = i
+            boxIndex[_cid] += 1
+
+        # Resize
+        maxlen = 0
+        for i in range(self.n_cells):
+            box = self.boxes[i]
+            n = box[box > -1]
+            if len(n) > maxlen:
+                maxlen = len(n)
+        
+        boxes = np.full((self.n_cells, maxlen), -1, dtype=np.int64)
+        for i in prange(self.n_cells):
+            box = self.boxes[i]
+            n = box[box > -1]
+            boxes[i][0:len(n)] = n
+
+        self.boxes = boxes
 
     def near(self, i: int, pA: np.array):
         x = pA[i]['x']; y = pA[i]['y']
@@ -119,27 +146,11 @@ class NNLinkedList(NearNeighbours):
                 cell_index = self.get_valid_cell_index(cid_x, cid_y, self.ncells_per_dim, self.n_cells)
 
                 if cell_index > -1:
-                    # get the first particle and begin iteration
-                    _next = self.heads[ cell_index ]
-                    while( _next != -1 ):
-                        # Should the distance be checked?
-                        if self.strict == True:
-                            # Compute the distance
-                            xij2 = self.norm2(pA[_next]['x'] - x, pA[_next]['y'] - y)
-                            r    = sqrt(xij2)
-
-                            # Compute q = r/h
-                            h_ij = 0.5 * (pA[_next]['h'] + pA[i]['h'])
-                            q_ij = r / h_ij
-
-                            # select neighbour
-                            if (q_ij <= 3.0):
-                                nbrs.append(_next)
-                        else:
-                            nbrs.append(_next)
-
-                        # get the 'next' particle in this cell
-                        _next = self.nexts[_next]
+                    # Get all the particles
+                    for i in self.boxes[cell_index]:
+                        if i == -1:
+                            break
+                        nbrs.append(i)
 
         # Pad the array to pA length.
         arr = np.full(len(pA), -1, dtype=np.int64)

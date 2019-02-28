@@ -23,6 +23,7 @@ from src.Equations.TimeStep import TimeStep
 from src.Equations.KineticEnergy import KineticEnergy
 from src.Tools.NearNeighbours import NearNeighbours
 from src.Tools.NNLinkedList import NNLinkedList
+from src.Tools.NNCellList import NNCellList
 from src.Tools.SolverTools import computeProps, findActive
 
 class Solver:
@@ -214,8 +215,7 @@ class Solver:
         gamma_f = 0.25
         if self.quick == True:
             # Determined by pure guess work.
-            gamma_f = 0.8
-            gamma_c = 0.5
+            gamma_f = 0.6
 
         m, c, f = TimeStep.compute(self.num_particles, self.particleArray[self.indexes], gamma_c, gamma_f)
 
@@ -290,6 +290,7 @@ class Solver:
         #arr = self._nbr()
         #arr = self._nbrCell()
         arr = self._nbrLinkedList()
+        #arr = self._nbrCellList()
 
         # Loop
         start = perf_counter()
@@ -297,9 +298,22 @@ class Solver:
         self.timing_data['compute_loop'] += perf_counter() - start
 
     @jit
+    def _nbrCellList(self) -> np.array:
+        start = perf_counter()
+        nn = NNCellList(2.0, False)
+        nn.update(self.particleArray[self.indexes])
+        self.timing_data['neighbour_hood'] += perf_counter() - start
+
+        start = perf_counter()
+        near = Solver._nbrFind(nn, self.num_particles, self.particleArray[self.indexes])
+        self.timing_data['neighbour_find'] += perf_counter() - start
+
+        return near
+
+    @jit
     def _nbrLinkedList(self) -> np.array:
         start = perf_counter()
-        nn = NNLinkedList()
+        nn = NNLinkedList(2.0, True)
         nn.update(self.particleArray[self.indexes])
         self.timing_data['neighbour_hood'] += perf_counter() - start
 
