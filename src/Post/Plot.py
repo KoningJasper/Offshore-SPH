@@ -16,7 +16,6 @@ from pyqtgraph.graphicsItems.GradientEditorItem import Gradients
 # Own
 from src.ColorBar import ColorBar
 
-#TODO: Test for ffmpeg
 class Plot():
     def __init__(self, file: str, slowdown: float = 8.0, fps: int = 10, title: str ='SPH Plot', xmin: float = None, xmax: float = None, ymin: float = None, ymax: float = None, height: int = 700, width: int = 500, exportAllFrames: bool = False):
         """
@@ -72,6 +71,15 @@ class Plot():
         self.ymax = ymax
 
         self.exportAllFrames = exportAllFrames
+
+        self.check()
+
+    def check(self):
+        """ Checks if ffmpeg is in path. """
+        try:
+            subprocess.run('ffmpeg')
+        except:
+            raise Exception("ffmpeg is not defined, check you path. Without ffmpeg, plots cannot be created.")
 
     def save(self, file: str):
         """

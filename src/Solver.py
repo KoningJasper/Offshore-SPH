@@ -8,7 +8,6 @@ import h5py
 from colorama import Fore, Style
 from prettytable import PrettyTable
 from tqdm import tqdm
-from scipy.spatial.distance import cdist
 from numba import prange, jit, njit, cfunc
 from typing import List, Tuple, Dict
 from time import perf_counter
@@ -20,7 +19,10 @@ from src.Methods.Method import Method
 from src.Kernels.Kernel import Kernel
 from src.Integrators.Integrator import Integrator
 from src.Equations.TimeStep import TimeStep
+from src.Equations.KineticEnergy import KineticEnergy
 from src.Tools.NearNeighbours import NearNeighbours
+from src.Tools.NNLinkedList import NNLinkedList
+from src.Tools.NNCellList import NNCellList
 from src.Tools.SolverTools import computeProps, findActive
 
 class Solver:
@@ -32,13 +34,14 @@ class Solver:
     integrator: Integrator
     kernel: Kernel
     duration: float
+    nn: NearNeighbours
     dt: float
 
     # Particle information
-    particles: List[Particle] = []
-    particleArray: np.array
+    particleArray: np.array = None
     num_particles: int = 0  # Number of active particles
     indexes: np.array       # Indexes of active particles
+    fluid_count: int = 0
 
     # Timing information
     timing_data: Dict[str, float] = {}
@@ -53,9 +56,11 @@ class Solver:
     dt_c: List[float] = []
     dt_f: List[float] = []
 
-    damping: float = 0.05 # Damping factor
+    damping: float = 0.10 # Damping factor
 
-    def __init__(self, method: Method, integrator: Integrator, kernel: Kernel, duration: float = 1.0, quick: bool = True, incrementalWriteout: bool = True, incrementalFile: str = "export", incrementalFreq: int = 1000, exportProperties: List[str] = ['x', 'y', 'p']):
+    setupComplete: bool = False
+
+    def __init__(self, method: Method, integrator: Integrator, kernel: Kernel, duration: float = 1.0, quick: bool = True, incrementalWriteout: bool = True, incrementalFile: str = "export", incrementalFreq: int = 1000, exportProperties: List[str] = ['x', 'y', 'p'], kE: float = 8.0, maxSettle: int = 500):
         """
         Initializes a new solver object. The solver orchestrates the entire solving of the SPH simulation.
 
@@ -88,32 +93,42 @@ class Solver:
 
         exportProperties: List[str]
             Properties to include in the final export, more properties will require more storage.
+
+        kE: float
+            Kinetic energy per particle treshold, when to stop settling, given in Joule.
+
+        maxSettle: int
+            Maximum number of timesteps to take during settling.
         """
 
         # Initialize classes
         self.method     = method
         self.integrator = integrator
         self.kernel     = kernel
-        self.nn         = NearNeighbours()
 
         # Set properties
-        self.duration = duration
-        self.quick    = quick
+        self.duration  = duration
+        self.quick     = quick
+        self.kE        = kE
+        self.maxSettle = maxSettle
 
         # Incremental write-out
         self.incrementalWriteout = incrementalWriteout
-        self.incrementalFreq = incrementalFreq
-        self.incrementalFile = incrementalFile
-        self.exportProperties = exportProperties
+        self.incrementalFreq     = incrementalFreq
+        self.incrementalFile     = incrementalFile
+        self.exportProperties    = exportProperties
 
         # Initialize timing
         self.timing_data['total']                = 0.0
         self.timing_data['storage']              = 0.0
         self.timing_data['integrate_correction'] = 0.0
         self.timing_data['integrate_prediction'] = 0.0
-        self.timing_data['compute']              = 0.0
+        self.timing_data['compute_h']            = 0.0
+        self.timing_data['compute_loop']         = 0.0
         self.timing_data['time_step']            = 0.0
         self.timing_data['neighbour_hood']       = 0.0
+        self.timing_data['neighbour_arr']        = 0.0
+        self.timing_data['neighbour_find']       = 0.0
 
     def load(self, file: str):
         """
@@ -132,42 +147,32 @@ class Solver:
             self.dt_c = h5f['dt_c'][:]
             self.dt_f = h5f['dt_f'][:]
 
-    def addParticles(self, particles: List[Particle]):
+    def addParticles(self, particles: np.array):
         """
             Adds the particles to the simulation.
 
             Parameters
             ----------
 
-            particles: List[Particle]
-                particles to add to the simulation, should be a list of particle objects.    
+            particles: np.array
+                particles to add to the simulation, should be a numpy array with particle_dtype as dtype.    
         """
-        self.particles.extend(particles)
-
-    def _convertParticles(self):
-        """ Convert the particle classes to a numpy array. """
-        # Init empty array
-        self.num_particles = len(self.particles)
-        self.particleArray = np.zeros(self.num_particles, dtype=particle_dtype)
-        for i, p in enumerate(self.particles):
-            pA          = self.particleArray[i]
-            pA['label'] = get_label_code(p.label)
-            pA['m']     = p.m
-            pA['rho'] = p.rho
-            pA['p'] = p.p
-            pA['x'] = p.r[0]
-            pA['y'] = p.r[1]
+        if self.particleArray == None:
+            self.particleArray = particles
+        else:
+            self.particleArray = np.concatenate(self.particleArray, particles)
 
     def setup(self):
         """ Sets-up the solver, with the required parameters. """
-        # Convert the particle array.
-        self._convertParticles()
+        println('Starting setup.')
 
         # Find the active ones.
         self.num_particles, self.indexes = findActive(self.num_particles, self.particleArray)
+        self.fluid_count = np.sum(self.particleArray[self.indexes]['label'] == ParticleType.Fluid)
+        println(f'{Fore.YELLOW}{self.num_particles}{Style.RESET_ALL} total particles, {Fore.YELLOW}{self.fluid_count}{Style.RESET_ALL} fluid particles.')
 
         # Calc h
-        (_, _, h) = self._nbrs()
+        h = Solver.computeH(1.3, self.num_particles, self.particleArray['m'][self.indexes], self.particleArray['rho'][self.indexes])
         self.particleArray['h'][self.indexes] = h
 
         # Initialize particles
@@ -185,8 +190,9 @@ class Solver:
             self.export[key] = []
 
         println(f'{Fore.GREEN}Setup complete.{Style.RESET_ALL}')
+        self.setupComplete = True
 
-    @jit(fastmath=True, cache=True)
+    @jit(fastmath=True)
     def _minTimeStep(self) -> float:
         """ Compute the minimum timestep, based on courant and force criteria. """
         start = perf_counter()
@@ -194,6 +200,7 @@ class Solver:
         gamma_c = 0.4
         gamma_f = 0.25
         if self.quick == True:
+            # Determined by pure guess work.
             gamma_f = 0.6
 
         m, c, f = TimeStep.compute(self.num_particles, self.particleArray[self.indexes], gamma_c, gamma_f)
@@ -205,7 +212,7 @@ class Solver:
         return m
 
     @staticmethod
-    @njit('float64[:](float64, int64, float64[:], float64[:])', fastmath=True, cache=True)
+    @njit('float64[:](float64, int64, float64[:], float64[:])', fastmath=True)
     def computeH(sigma: float, J: int, m: np.array, rho: np.array):
         """ Compute (dynamic) h size, based on Monaghan 2005. """
         d = 2 # 2 Dimensions (x, y)
@@ -216,26 +223,9 @@ class Solver:
         
         return h
 
-    @jit(fastmath=True, cache=True)
-    def _nbrs(self):
-        start = perf_counter()
-
-        pA = self.particleArray[self.indexes]
-
-        # Distance and neighbourhood
-        r = np.transpose(np.vstack((pA['x'], pA['y'])))
-        dist = cdist(r, r, 'euclidean')
-
-        # Distance of closest particle time 1.3
-        h = Solver.computeH(1.3, self.num_particles, pA['m'], pA['rho'])
-        #h: np.array = 1.3 * np.ma.masked_values(dist, 0.0, copy=False).min(1)
-
-        self.timing_data['neighbour_hood'] += perf_counter() - start
-        return (r, dist, h)
-
     @staticmethod
-    @njit(fastmath=True, parallel=True, cache=True)
-    def _loop(h, dist, pA, evFunc, gradFunc, methodClass, nn):
+    @njit(fastmath=True)
+    def _loop(pA, evFunc, gradFunc, methodClass, nears):
         p = methodClass.compute_pressure(pA)
         c = methodClass.compute_speed_of_sound(pA)
 
@@ -245,7 +235,7 @@ class Solver:
             pA[i]['c'] = c[i]
 
             # Find near neighbours and their h and q
-            h_i, q_i, near_arr = nn.near(i, h, dist[i, :])
+            near_arr = nears[i][nears[i] > -1]
 
             # Skip if got no neighbours, early exit.
             # Keep same properties, no acceleration.
@@ -254,7 +244,7 @@ class Solver:
 
             # Create computed properties
             # Fill the props
-            calcProps = computeProps(i, pA, near_arr, h_i, q_i, dist, evFunc, gradFunc)
+            calcProps = computeProps(i, pA, near_arr, evFunc, gradFunc)
 
             # Continuity
             pA[i]['drho'] = methodClass.compute_density_change(pA[i], calcProps)
@@ -271,23 +261,49 @@ class Solver:
 
     def _compute(self):
         """ Compute the accelerations, velocities, etc. """
-        start = perf_counter()
-
-        # Neighbourhood
-        (_, dist, h) = self._nbrs()
 
         # Set h
+        start = perf_counter()
+        h = Solver.computeH(1.3, self.num_particles, self.particleArray['m'][self.indexes], self.particleArray['rho'][self.indexes])
         self.particleArray['h'][self.indexes] = h
+        self.timing_data['compute_h'] += perf_counter() - start
 
         # Re-set accelerations
         self.particleArray['ax'][self.indexes]   = 0.0
         self.particleArray['ay'][self.indexes]   = 0.0
         self.particleArray['drho'][self.indexes] = 0.0
 
-        # Loop
-        self.particleArray[self.indexes] = Solver._loop(h, dist, self.particleArray[self.indexes], self.kernel.evaluate, self.kernel.gradient, self.method, self.nn)
+        #arr = self._nbr()
+        #arr = self._nbrCell()
+        arr = self._nbrLinkedList()
+        #arr = self._nbrCellList()
 
-        self.timing_data['compute'] += perf_counter() - start
+        # Loop
+        start = perf_counter()
+        self.particleArray[self.indexes] = Solver._loop(self.particleArray[self.indexes], self.kernel.evaluate, self.kernel.gradient, self.method, arr)
+        self.timing_data['compute_loop'] += perf_counter() - start
+
+    @jit
+    def _nbrLinkedList(self) -> np.array:
+        start = perf_counter()
+        nn = NNLinkedList(2.0, True)
+        nn.update(self.particleArray[self.indexes])
+        self.timing_data['neighbour_hood'] += perf_counter() - start
+
+        start = perf_counter()
+        near = Solver._nbrFind(nn, self.num_particles, self.particleArray[self.indexes])
+        self.timing_data['neighbour_find'] += perf_counter() - start
+
+        return near
+
+    @staticmethod
+    @njit(fastmath=True)
+    def _nbrFind(nn, J, pA):
+        near = np.zeros((J, J), dtype=np.int64) # Initialize
+        for p in prange(J):
+            near[p] = nn.near(p, pA)
+
+        return near
 
     def run(self):
         """
@@ -295,20 +311,27 @@ class Solver:
         """
         start_all = perf_counter()
 
+        # Check setup
+        if self.setupComplete == False:
+            raise Exception('Run setup before executing simulation.')
+
         # Check particle length.
-        if len(self.particles) == 0 or len(self.particles) != self.num_particles:
+        if len(self.particleArray) == 0 or len(self.particleArray) != self.num_particles:
             raise Exception('No or invalid particles set!')
 
         t_step: int = 0   # Step
         t: float    = 0.0 # Current time
         println('Started solving...')
-        settleSteps = 1000
-        sbar = tqdm(total=settleSteps, desc='Settling', unit='steps', leave=False)
+        println('Settling particles..')
+
+        # Create progress bar.
+        sbar = tqdm(total=self.maxSettle, desc='Settling', leave=False)
 
         t_fail: float = 0.0 # Time at failure
         t_stepback: int = 10
         dt_threshold: float = 0.05 # Explosion treshold
         dt_scale: float = 0.5 # Scale with half after explosion.
+        settled: bool = False
 
         while t < self.duration:
             # Compute time step.
@@ -362,14 +385,16 @@ class Solver:
                 t += self.dt
             t_step += 1
 
-            if t_step > settleSteps:
-                if self.damping > 0:
-                    sbar.update(n=1)
+            # Check settling, skip first timestep
+            if settled == False and t_step > 1:
+                # Compute kinetic energy
+                ke = KineticEnergy(self.num_particles, self.particleArray[self.indexes])
+                if ke < (self.kE * self.fluid_count) or t_step > self.maxSettle:
+                    if t_step > self.maxSettle:
+                        println(f'{Fore.YELLOW}WARNING!{Style.RESET_ALL} Maximum settle steps reached, maybe increase damping?')
+                    
+                    # Remove old bar
                     sbar.close()
-                    println(f'{Fore.GREEN}Settling Complete.{Style.RESET_ALL}')
-
-                    # Create progress bar.
-                    tbar = tqdm(total=self.duration, desc='Time-stepping', unit='s', leave=False)
 
                     # Remove temp-boundary
                     inds = []
@@ -385,9 +410,18 @@ class Solver:
 
                     # Set settling time
                     self.settleTime = sum(self.dt_a)
-                    
-                # Stop damping after 100-th time steps.
-                self.damping = 0.0
+                        
+                    # Stop damping after reaching settling kinetic energy
+                    self.damping = 0.0
+
+                    settled = True
+                    println(f'{Fore.GREEN}Settling Complete.{Style.RESET_ALL}')
+
+                    # Create progress bar.
+                    tbar = tqdm(total=self.duration, desc='Time-stepping', unit='s', leave=False)
+                else:
+                    sbar.update(1)
+                    #println(f'Kinetic Energy: {ke} [J] is larger than {(self.kE * self.fluid_count)} [J]')
 
             # Only keep self.incrementalFreq in memory.
             if len(self.data) > self.incrementalFreq:
@@ -396,8 +430,6 @@ class Solver:
             # Update tbar
             if self.damping == 0:
                 tbar.update(self.dt)
-            else:
-                sbar.update(n=1)
         # End while
 
         tbar.close()
