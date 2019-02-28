@@ -8,11 +8,11 @@ class Euler(Integrator):
     def isMultiStage(self) -> bool:
         return False
 
-    def predict(self, dt: float, p: np.array) -> np.array:
+    def predict(self, dt: float, p: np.array, damping: float = 0.0) -> np.array:
         """ Predict does nothing in eurler-integrator. """
         return p
 
-    def correct(self, dt: float, p: np.array) -> np.array:
+    def correct(self, dt: float, p: np.array, damping: float = 0.0) -> np.array:
         """
         Parameters
         ----------

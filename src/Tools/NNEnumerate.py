@@ -9,6 +9,9 @@ spec = [
 @jitclass(spec)
 class NNEnumerate(NearNeighbours):
     def __init__(self):
+        """
+            Completely enumerates all the neighbours. Can be used for small numbers of particle size, however, shouldn't be used.
+        """
         pass
 
     def update(self, pA: np.array):

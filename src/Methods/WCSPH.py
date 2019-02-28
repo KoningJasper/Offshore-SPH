@@ -4,7 +4,6 @@ from typing import List
 from src.Common import _stack
 from src.Methods.Method import Method
 from src.Equations import Continuity, BodyForce, Momentum, TaitEOS, XSPH
-from src.Particle import Particle
 
 spec = [
     ('useXSPH', float64),
@@ -50,7 +49,7 @@ class WCSPH(Method):
         return [0.0]
 
     # Override
-    def initialize(self, pA):
+    def initialize(self, pA: np.array):
         """ Initialize the particles, should only be run once at the start of the solver. """
         rho = TaitEOS.TaitEOS_height(
             self.rho0,
@@ -65,7 +64,7 @@ class WCSPH(Method):
 
         return pA
 
-    def compute_speed_of_sound(self, pA):
+    def compute_speed_of_sound(self, pA: np.array):
         # Speed of sound is a constant with Tait, so just return that.
         J = len(pA)
         cs = np.zeros(J, dtype=np.float64)
@@ -74,6 +73,20 @@ class WCSPH(Method):
         return cs
 
     def compute_pressure(self, pA: np.array):
+        """
+            Computes the pressure based on the Tait EOS.
+
+            Parameters
+            ----------
+
+            pA: np.array
+                complete particle array of type particle_dtype
+
+            Returns
+            -------
+            p: np.array
+                Array of pressures
+        """
         return TaitEOS.TaitEOS(
             self.gamma,
             self.B,
@@ -81,20 +94,35 @@ class WCSPH(Method):
             pA['rho']
         )
 
-    # Override
-    def compute_acceleration(self, p, comp):
+    def compute_acceleration(self, p: np.array, comp: np.array):
+        """
+            Computes the acceleration of the particle using Momentum Equation. Includes gravity of 9.81 m/s in negative y-direction.
+
+            Parameters
+            ----------
+            p: np.array
+                Single particle for which to compute the momentum for.
+            comp: np.array
+                Computed properties of neighbouring particles that interact with particle p.
+
+            Returns
+            -------
+            a_x: float
+                acceleration in x-direction for particle p.
+            a_y: float
+                acceleration in y-direction for particle p, including gravity (-9.81).
+        """
         # Momentum
         [a_x, a_y] = Momentum.Momentum(
             self.alpha,
             self.beta,
-            p,
+            pA,
             comp
         )
 
         # Gravity
         return [a_x, a_y - 9.81]
 
-    # Override
     def compute_velocity(self, p, comp):
         if self.useXSPH > 0.0:
             # Compute XSPH Term

@@ -4,13 +4,8 @@ from numba import njit, prange
 from src.Kernels.Kernel import Kernel
 
 class CubicSpline(Kernel):
-    alpha: float
-
-    def __init__(self):
-        self.alpha = 10 / (7 * pi)
-
     @staticmethod
-    @njit(fastmath=True, cache=True)
+    @njit(fastmath=True)
     def evaluate(r: np.array, h: np.array):
         """
         Evaluates the kernel function for the given points.
@@ -38,7 +33,7 @@ class CubicSpline(Kernel):
         return k
     
     @staticmethod
-    @njit(fastmath=True, cache=True)
+    @njit(fastmath=True)
     def gradient(x: np.array, r: np.array, h: np.array):
         """
         Calculates the gradient of the cubic spline at the given points.

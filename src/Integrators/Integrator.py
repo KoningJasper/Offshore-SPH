@@ -30,9 +30,9 @@ class Integrator():
         pass
 
     @abc.abstractmethod
-    def predict(self, dt: float, p: np.array):
+    def predict(self, dt: float, pA: np.array, damping: float):
         pass
 
     @abc.abstractmethod
-    def correct(self, dt: float, p: np.array):
+    def correct(self, dt: float, pA: np.array, damping: float):
         pass

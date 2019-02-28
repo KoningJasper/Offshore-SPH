@@ -5,7 +5,6 @@ sys.path.insert(1, os.path.join(sys.path[0], '..'))
 import numpy as np
 
 from src.Solver import Solver
-from src.Particle import Particle
 from src.Methods.WCSPH import WCSPH
 from src.Kernels.CubicSpline import CubicSpline
 from src.Integrators.PEC import PEC

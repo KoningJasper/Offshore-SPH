@@ -14,7 +14,7 @@ from pyqtgraph.graphicsItems import TextItem
 from pyqtgraph.graphicsItems.GradientEditorItem import Gradients
 
 # Own
-from src.ColorBar import ColorBar
+from src.Post.ColorBar import ColorBar
 
 class Plot():
     def __init__(self, file: str, slowdown: float = 8.0, fps: int = 10, title: str ='SPH Plot', xmin: float = None, xmax: float = None, ymin: float = None, ymax: float = None, height: int = 700, width: int = 500, exportAllFrames: bool = False):

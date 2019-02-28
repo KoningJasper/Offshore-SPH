@@ -5,7 +5,7 @@ from numba import njit, prange, jit, jitclass
 from src.Common import computed_dtype
 from scipy.spatial.distance import cdist
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True)
 def computeProps(i: int, pA: np.array, near_arr: List[int], evFunc, gradFunc):
     """
         Computes the computed properties (other particles).
@@ -43,7 +43,7 @@ def computeProps(i: int, pA: np.array, near_arr: List[int], evFunc, gradFunc):
 
     return calcProps
 
-@jit(fastmath=True, cache=True)
+@jit(fastmath=True)
 def findActive(J: int, pA: np.array) -> Tuple[float, np.array]:
     """
         Finds the active particles and returns their index and total active count.
@@ -71,7 +71,7 @@ def findActive(J: int, pA: np.array) -> Tuple[float, np.array]:
     a_c = np.sum(a_i)
     return a_c, a_i
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True)
 def _assignProps(i: int, particleArray: np.array, near_arr: np.array):
     J = len(near_arr)
 

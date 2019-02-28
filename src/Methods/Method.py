@@ -1,6 +1,5 @@
 import abc
 import numpy as np
-from src.Particle import Particle
 
 class Method():
     """ 
@@ -9,15 +8,15 @@ class Method():
         Will include all possible variables to the underlying functions so they can decide what to use.
     """
     @abc.abstractmethod
-    def initialize(self, p: Particle) -> Particle:
+    def initialize(self, pA: np.array) -> np.array:
         raise Exception('No implemented!')
 
     @abc.abstractmethod
-    def compute_speed_of_sound(self, p: Particle) -> float:
+    def compute_speed_of_sound(self, pA: np.array) -> np.array:
         raise Exception('No implemented!')
 
     @abc.abstractmethod
-    def compute_pressure(self, p: Particle) -> float:
+    def compute_pressure(self, pA: np.array) -> np.array:
         raise Exception('No implemented!')
 
     @abc.abstractmethod

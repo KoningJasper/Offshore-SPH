@@ -43,10 +43,38 @@ class NNCellList(NearNeighbours):
         self.shifts = np.array([-1, 0, 1], dtype=np.int64)
 
     def update(self, pA: np.array):
-        self.init(pA)
-        self.bin(pA)
+        self._init(pA)
+        self._bin(pA)
 
-    def init(self, pA: np.array):
+    def near(self, i: int, pA: np.array):
+        x = pA[i]['x']; y = pA[i]['y']
+
+        # Find unflattened id of particle
+        _cid_x, _cid_y = self._find_cell_id_raw(x - self.xmin, y - self.ymin, self.cell_size)
+        
+        # Search through neighbouring cells
+        nbrs = []
+        for ix in range(3):
+            for iy in range(3):
+                cid_x = _cid_x + self.shifts[ix]
+                cid_y = _cid_y + self.shifts[iy]
+
+                # Get cell index
+                cell_index = self._get_valid_cell_index(cid_x, cid_y, self.ncells_per_dim, self.n_cells)
+
+                if cell_index > -1:
+                    # Get all the particles
+                    for i in self.boxes[cell_index]:
+                        if i == -1:
+                            break
+                        nbrs.append(i)
+
+        # Pad the array to pA length.
+        arr = np.full(len(pA), -1, dtype=np.int64)
+        arr[0:len(nbrs)] = np.array(nbrs)
+        return arr
+
+    def _init(self, pA: np.array):
         """ Initialize the arrays. """
         # Find mins and maxes
         self.xmin = pA['x'].min()
@@ -56,8 +84,8 @@ class NNCellList(NearNeighbours):
         self.ymax = pA['y'].max()
 
         # Compute grid
-        self.cell_size = self.get_cell_size(pA)
-        self.n_cells   = self.get_number_of_cells(pA)
+        self.cell_size = self._get_cell_size(pA)
+        self.n_cells   = self._get_number_of_cells(pA)
 
         # Create the array
         J = len(pA)
@@ -66,7 +94,7 @@ class NNCellList(NearNeighbours):
         # A box can at most contain all the particles (J), however, this is severe worst case scenario and might be reduced in the future
         self.boxes = np.full((self.n_cells, J), -1, dtype=np.int64)
 
-    def get_cell_size(self, pA: np.array):
+    def _get_cell_size(self, pA: np.array):
         hmax = pA['h'].max()
         cell_size = hmax * self.scale
 
@@ -75,7 +103,7 @@ class NNCellList(NearNeighbours):
 
         return cell_size
 
-    def get_number_of_cells(self, pA: np.array):
+    def _get_number_of_cells(self, pA: np.array):
         cell_size1 = 1. / self.cell_size
 
         # calculate the number of cells.
@@ -92,7 +120,7 @@ class NNCellList(NearNeighbours):
         # total number of cells
         return ncx * ncy
 
-    def bin(self, pA: np.array):
+    def _bin(self, pA: np.array):
         """ Bin the particles. """
         J = len(pA)
 
@@ -105,8 +133,8 @@ class NNCellList(NearNeighbours):
             y = pA[i]['y'] - self.ymin
 
             # Get the cell-id
-            _cid_x, _cid_y = self.find_cell_id_raw(x, y, self.cell_size)
-            _cid = self.flatten_raw(_cid_x, _cid_y, self.ncells_per_dim)
+            _cid_x, _cid_y = self._find_cell_id_raw(x, y, self.cell_size)
+            _cid = self._flatten_raw(_cid_x, _cid_y, self.ncells_per_dim)
 
             # Insert
             self.heads[i] = _cid
@@ -129,38 +157,10 @@ class NNCellList(NearNeighbours):
 
         self.boxes = boxes
 
-    def near(self, i: int, pA: np.array):
-        x = pA[i]['x']; y = pA[i]['y']
-
-        # Find unflattened id of particle
-        _cid_x, _cid_y = self.find_cell_id_raw(x - self.xmin, y - self.ymin, self.cell_size)
-        
-        # Search through neighbouring cells
-        nbrs = []
-        for ix in range(3):
-            for iy in range(3):
-                cid_x = _cid_x + self.shifts[ix]
-                cid_y = _cid_y + self.shifts[iy]
-
-                # Get cell index
-                cell_index = self.get_valid_cell_index(cid_x, cid_y, self.ncells_per_dim, self.n_cells)
-
-                if cell_index > -1:
-                    # Get all the particles
-                    for i in self.boxes[cell_index]:
-                        if i == -1:
-                            break
-                        nbrs.append(i)
-
-        # Pad the array to pA length.
-        arr = np.full(len(pA), -1, dtype=np.int64)
-        arr[0:len(nbrs)] = np.array(nbrs)
-        return arr
-
-    def norm2(self, x, y):
+    def _norm2(self, x, y):
         return x * x + y * y
 
-    def find_cell_id_raw(self, x: float, y: float, cell_size: float) -> (int, int):
+    def _find_cell_id_raw(self, x: float, y: float, cell_size: float) -> (int, int):
         """
         Find the cell index for the corresponding point
         
@@ -176,9 +176,9 @@ class NNCellList(NearNeighbours):
         Performs a box sort based on the point and cell size
         Uses the function  `real_to_int`
         """
-        return self.real_to_int(x, cell_size), self.real_to_int(y, cell_size)
+        return self._real_to_int(x, cell_size), self._real_to_int(y, cell_size)
 
-    def real_to_int(self, val: float, step: float) -> int:
+    def _real_to_int(self, val: float, step: float) -> int:
         """
         Return the bin index to which the given position belongs.
         
@@ -192,7 +192,7 @@ class NNCellList(NearNeighbours):
 
         return floor(val / step)
 
-    def get_valid_cell_index(self, cid_x: int, cid_y: int, ncells_per_dim: List[int], n_cells: int) -> int:
+    def _get_valid_cell_index(self, cid_x: int, cid_y: int, ncells_per_dim: List[int], n_cells: int) -> int:
         """Return the flattened index for a valid cell"""
         ncx = ncells_per_dim[0]
         ncy = ncells_per_dim[1]
@@ -207,14 +207,14 @@ class NNCellList(NearNeighbours):
 
         # Given the validity of the cells, return the flattened cell index
         if is_valid:
-            cell_index = self.flatten_raw(cid_x, cid_y, ncells_per_dim)
+            cell_index = self._flatten_raw(cid_x, cid_y, ncells_per_dim)
 
             if not (-1 < cell_index < n_cells):
                 cell_index = -1
 
         return cell_index
 
-    def flatten_raw(self, x: int, y: int, ncells_per_dim: List[int]) -> int:
+    def _flatten_raw(self, x: int, y: int, ncells_per_dim: List[int]) -> int:
         """Return a flattened index for a cell
         The flattening is determined using the row-order indexing commonly
         employed in SPH. This would need to be changed for hash functions
