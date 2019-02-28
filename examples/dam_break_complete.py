@@ -10,58 +10,38 @@ from src.Methods.WCSPH import WCSPH
 from src.Kernels.CubicSpline import CubicSpline
 from src.Integrators.PEC import PEC
 from src.Post.Plot import Plot
+from src.Helpers import Helpers
+from src.Common import ParticleType
 
-def create_particles(N: int, mass: float):
-    # Create some particles
-    xv = np.linspace(0, 25, N)
-    yv = np.linspace(0, 25, N)
-    x, y = np.meshgrid(xv, yv, indexing='ij')
-    x = x.ravel()
-    y = y.ravel()
+def create_particles(N: int, rho0: float):
+    helper = Helpers(rho0)
+    pA = helper.box(0, 25, 0, 25, N)
+    mass = 25 * 25 * rho0 / len(pA)
+    pA['m'] = mass
 
-    particles = []
-    for i in range(len(x)):
-        particles.append(Particle('fluid', x[i], y[i], mass))
-    
-    r0 = 25 / N # Distance between boundary particles.
-    rho_b = 1000. # Density of the boundary [kg/m^3]
-    mass_b = mass * 1.5 # Mass of the boundary [kg]
+    # (initial) separation between fluid and boundaries
+    r0 = pA['x'][1] - pA['x'][0]
+    print(r0)
+    sep = 2.5 * r0
 
-    # Maximum and minimum values of boundaries
-    x_min = - 2.5 * r0
-    x_max = 150
-    y_min = - 2.5 * r0
-    y_max = 30
-    
-    # Bottom & Top
-    xv = np.arange(x_min, x_max, r0)
-    yv = np.zeros(len(xv)) + y_min
-    for i in range(len(xv)):
-        particles.append(Particle('boundary', xv[i] + r0 / 2, yv[i], mass_b, rho_b))
+    # Create some boundaries
+    pA_bottom = helper.box(-sep, 150, -sep, -sep, r0=r0, type=ParticleType.Boundary)
+    pA_left   = helper.box(-sep, -sep, -sep, 30, r0=r0, type=ParticleType.Boundary)
+    pA_temp   = helper.box(25 + sep, 25 + sep, -sep, 30, r0=r0, type=ParticleType.TempBoundary)
 
-    # Left & Right
-    yv3 = np.arange(y_min, y_max, r0)    
-    xv2 = np.zeros(len(yv3)) + x_min
-    for i in range(len(yv3)):
-        particles.append(Particle('boundary', xv2[i], yv3[i] + r0 / 2, mass_b, rho_b))
-        
-    # Temp-Boundary
-    xvt = np.zeros(len(yv3)) + 25 - x_min
-    for i in range(len(yv3)):
-        particles.append(Particle('temp-boundary', xvt[i], yv3[i] + r0 / 2, mass_b, rho_b))
-        #particles.append(Particle('temp-boundary', xvt[i] + r0, yv3[i] - r0 / 2, mass_b, rho_b))
+    # Set boundary mass
+    pA_bottom['m'] = mass * 1.5; pA_left['m'] = mass * 1.5; pA_temp['m'] = mass * 1.5
 
-    return particles
+    # Return the giant particles
+    return np.concatenate((pA, pA_bottom, pA_left, pA_temp))
 
 def main():
     # Main parameters
-    N = 50; rho0 = 1000.0; duration = 1.0
+    N = 2500; rho0 = 1000.0; duration = 1.0
     XSPH = True; height = 25.0; plot = False
 
     # Create some particles
-    dA = 25 * 25 / N ** 2 # Area per particle. [m^2]
-    mass = dA * rho0
-    particles = create_particles(N, mass)
+    particles = create_particles(N, rho0)
 
     # Create the solver
     kernel     = CubicSpline()

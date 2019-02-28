@@ -8,7 +8,6 @@ import h5py
 from colorama import Fore, Style
 from prettytable import PrettyTable
 from tqdm import tqdm
-from scipy.spatial import cKDTree
 from numba import prange, jit, njit, cfunc
 from typing import List, Tuple, Dict
 from time import perf_counter
@@ -35,13 +34,11 @@ class Solver:
     integrator: Integrator
     kernel: Kernel
     duration: float
-    tree: cKDTree
     nn: NearNeighbours
     dt: float
 
     # Particle information
-    particles: List[Particle] = []
-    particleArray: np.array
+    particleArray: np.array = None
     num_particles: int = 0  # Number of active particles
     indexes: np.array       # Indexes of active particles
     fluid_count: int = 0
@@ -60,6 +57,8 @@ class Solver:
     dt_f: List[float] = []
 
     damping: float = 0.10 # Damping factor
+
+    setupComplete: bool = False
 
     def __init__(self, method: Method, integrator: Integrator, kernel: Kernel, duration: float = 1.0, quick: bool = True, incrementalWriteout: bool = True, incrementalFile: str = "export", incrementalFreq: int = 1000, exportProperties: List[str] = ['x', 'y', 'p'], kE: float = 8.0, maxSettle: int = 500):
         """
@@ -108,16 +107,16 @@ class Solver:
         self.kernel     = kernel
 
         # Set properties
-        self.duration = duration
-        self.quick    = quick
-        self.kE       = kE
+        self.duration  = duration
+        self.quick     = quick
+        self.kE        = kE
         self.maxSettle = maxSettle
 
         # Incremental write-out
         self.incrementalWriteout = incrementalWriteout
-        self.incrementalFreq = incrementalFreq
-        self.incrementalFile = incrementalFile
-        self.exportProperties = exportProperties
+        self.incrementalFreq     = incrementalFreq
+        self.incrementalFile     = incrementalFile
+        self.exportProperties    = exportProperties
 
         # Initialize timing
         self.timing_data['total']                = 0.0
@@ -148,38 +147,24 @@ class Solver:
             self.dt_c = h5f['dt_c'][:]
             self.dt_f = h5f['dt_f'][:]
 
-    def addParticles(self, particles: List[Particle]):
+    def addParticles(self, particles: np.array):
         """
             Adds the particles to the simulation.
 
             Parameters
             ----------
 
-            particles: List[Particle]
-                particles to add to the simulation, should be a list of particle objects.    
+            particles: np.array
+                particles to add to the simulation, should be a numpy array with particle_dtype as dtype.    
         """
-        self.particles.extend(particles)
-
-    def _convertParticles(self):
-        """ Convert the particle classes to a numpy array. """
-        # Init empty array
-        self.num_particles = len(self.particles)
-        self.particleArray = np.zeros(self.num_particles, dtype=particle_dtype)
-        for i, p in enumerate(self.particles):
-            pA          = self.particleArray[i]
-            pA['label'] = get_label_code(p.label)
-            pA['m']     = p.m
-            pA['rho'] = p.rho
-            pA['p'] = p.p
-            pA['x'] = p.r[0]
-            pA['y'] = p.r[1]
+        if self.particleArray == None:
+            self.particleArray = particles
+        else:
+            self.particleArray = np.concatenate(self.particleArray, particles)
 
     def setup(self):
         """ Sets-up the solver, with the required parameters. """
         println('Starting setup.')
-
-        # Convert the particle array.
-        self._convertParticles()
 
         # Find the active ones.
         self.num_particles, self.indexes = findActive(self.num_particles, self.particleArray)
@@ -205,6 +190,7 @@ class Solver:
             self.export[key] = []
 
         println(f'{Fore.GREEN}Setup complete.{Style.RESET_ALL}')
+        self.setupComplete = True
 
     @jit(fastmath=True)
     def _minTimeStep(self) -> float:
@@ -298,19 +284,6 @@ class Solver:
         self.timing_data['compute_loop'] += perf_counter() - start
 
     @jit
-    def _nbrCellList(self) -> np.array:
-        start = perf_counter()
-        nn = NNCellList(2.0, False)
-        nn.update(self.particleArray[self.indexes])
-        self.timing_data['neighbour_hood'] += perf_counter() - start
-
-        start = perf_counter()
-        near = Solver._nbrFind(nn, self.num_particles, self.particleArray[self.indexes])
-        self.timing_data['neighbour_find'] += perf_counter() - start
-
-        return near
-
-    @jit
     def _nbrLinkedList(self) -> np.array:
         start = perf_counter()
         nn = NNLinkedList(2.0, True)
@@ -338,8 +311,12 @@ class Solver:
         """
         start_all = perf_counter()
 
+        # Check setup
+        if self.setupComplete == False:
+            raise Exception('Run setup before executing simulation.')
+
         # Check particle length.
-        if len(self.particles) == 0 or len(self.particles) != self.num_particles:
+        if len(self.particleArray) == 0 or len(self.particleArray) != self.num_particles:
             raise Exception('No or invalid particles set!')
 
         t_step: int = 0   # Step
