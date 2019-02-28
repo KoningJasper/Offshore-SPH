@@ -49,7 +49,7 @@ class test_nn_algos(unittest.TestCase):
 
         # Check nearest bottom-left corner
         nn.near(0, pA) # Compile
-        count = 100000; start = perf_counter();
+        count = 1_000; start = perf_counter();
         for i in range(count):
             near_0 = nn.near(0, pA)
         end = perf_counter() - start
@@ -119,7 +119,7 @@ class test_nn_algos(unittest.TestCase):
 
         # Check nearest bottom-left corner
         nn.near(0, pA) # Compile
-        count = 100000; start = perf_counter();
+        count = 1_000; start = perf_counter();
         for i in range(count):
             near_0 = nn.near(0, pA)
         end = perf_counter() - start
