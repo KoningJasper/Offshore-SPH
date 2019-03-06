@@ -361,7 +361,7 @@ class Solver:
                     self.num_particles, self.indexes = findActive(self.num_particles, self.particleArray)
 
                     # Set the pressure to - a lot for deleted particles.
-                    self.particleArray['p'][np.array(inds)] = -1e15
+                    self.particleArray['p'][inds] = -1e15
 
                     # Set settling time
                     self.settleTime = sum(self.dt_a)
@@ -376,6 +376,7 @@ class Solver:
                     tbar = tqdm(total=self.duration, desc='Time-stepping', unit='s', leave=False)
                 else:
                     sbar.update(1)
+            # End settled
 
             # Only keep self.incrementalFreq in memory.
             if len(self.data) > self.incrementalFreq:
@@ -384,8 +385,6 @@ class Solver:
             # Update tbar
             if settled == True:
                 tbar.update(self.dt)
-            else:
-                sbar.update(n=1)
         # End while
 
         tbar.close()
