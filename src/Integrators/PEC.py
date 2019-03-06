@@ -31,7 +31,8 @@ class PEC():
     
     def predict(self, dt: float, pA: np.array, damping: float) -> np.array:
         J = len(pA)
-        for j in range(J):
+        # Outside of compute loop so prange can be used.
+        for j in prange(J):
             if pA[j]['label'] == ParticleType.Fluid:
                 # Store noughts
                 pA[j]['x0'] = pA[j]['x']
@@ -60,7 +61,8 @@ class PEC():
 
     def correct(self, dt: float, pA: np.array, damping: float) -> np.array:
         J = len(pA)
-        for j in range(J):
+        # Outside of compute loop so prange can be used.
+        for j in prange(J):
             if pA[j]['label'] == ParticleType.Fluid:
                 # Correct mid-point
                 if self.useXSPH == True:

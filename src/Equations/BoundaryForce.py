@@ -1,6 +1,6 @@
 import numpy as np
 import math
-from numba import njit, prange
+from numba import njit
 from src.Common import ParticleType
 
 @njit(fastmath=True)
@@ -28,7 +28,7 @@ def BoundaryForce(r0, D, p1, p2, p, comp):
     """
     f = [0., 0.]
     J = len(comp)
-    for j in prange(J):
+    for j in range(J):
         if (comp[j]['label'] != ParticleType.Boundary) or (comp[j]['r'] > r0):
             # Only consider boundaries and where distance is closer than r0.
             continue

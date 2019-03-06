@@ -1,6 +1,6 @@
 import numpy as np
 from typing import List, Tuple
-from numba import njit, prange, jit, jitclass
+from numba import njit, jit
 from src.Common import computed_dtype
 
 @njit(fastmath=True)
@@ -34,7 +34,7 @@ def computeProps(i: int, pA: np.array, near_arr: List[int], h_i, q_i, dist, evFu
     dw_x = gradFunc(calcProps['x'], calcProps['r'], calcProps['h'])
     dw_y = gradFunc(calcProps['y'], calcProps['r'], calcProps['h'])
 
-    for j in prange(len(calcProps)):
+    for j in range(len(calcProps)):
         calcProps[j]['w']    = w[j] # Not needed for density change
         calcProps[j]['dw_x'] = dw_x[j]
         calcProps[j]['dw_y'] = dw_y[j]
@@ -77,7 +77,7 @@ def _assignProps(i: int, particleArray: np.array, near_arr: np.array, h_i: np.ar
     calcProps = np.zeros(J, dtype=computed_dtype)
 
     # Fill based on existing data.
-    for j in prange(J):
+    for j in range(J):
         global_i = near_arr[j]
         pA = particleArray[global_i]
 

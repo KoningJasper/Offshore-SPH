@@ -5,6 +5,7 @@ from numba import njit, prange
 @njit(fastmath=True)
 def KineticEnergy(J, pA) -> float:
     k = 0.0
+    # Outside of compute loop so prange can be used.
     for j in prange(J):
         v2 = pow(pA[j]['vx'], 2) + pow(pA[j]['vy'], 2)
         k += 0.5 * pA[j]['m'] * v2

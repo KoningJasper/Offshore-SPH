@@ -80,6 +80,7 @@ class TimeStep:
                 minimum h, maximum speed of sound, and maximum acceleration
         """
         h = []; c = []; a2 = []
+        # Outside of compute loop so prange can be used.
         for j in prange(J):
             if pA[j]['label'] == ParticleType.Fluid:
                 h.append(pA[j]['h'])

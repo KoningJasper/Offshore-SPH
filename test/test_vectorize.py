@@ -4,7 +4,7 @@ sys.path.insert(1, os.path.join(sys.path[0], '..'))
 
 import unittest
 import numpy as np
-from numba import vectorize, njit, jit, prange
+from numba import vectorize, njit, jit
 from time import perf_counter
 from src.Equations.Continuity import Continuity
 from src.Common import computed_dtype

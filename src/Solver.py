@@ -208,6 +208,8 @@ class Solver:
         d = 2 # 2 Dimensions (x, y)
         f = 1 / d
         h = np.zeros_like(m)
+        
+        # Outside of compute loop so prange can be used.
         for j in prange(J):
             h[j] = sigma * (m[j] / rho[j]) ** f
         

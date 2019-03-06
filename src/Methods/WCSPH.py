@@ -68,6 +68,7 @@ class WCSPH(Method):
             pA['y']
         )
 
+        # Outside of compute loop so prange can be used.
         for j in prange(len(pA)):
             pA[j]['rho'] = rho[j]
 
@@ -88,6 +89,8 @@ class WCSPH(Method):
         # Speed of sound is a constant with Tait, so just return that.
         J = len(pA)
         cs = np.zeros(J, dtype=np.float64)
+        
+        # Outside of compute loop so prange can be used.
         for j in prange(J):
             cs[j] = self.co
         return cs

@@ -1,6 +1,6 @@
 import numpy as np
 from math import sqrt
-from numba import njit, prange, vectorize
+from numba import njit, vectorize
 
 @vectorize('float64(float64, float64, float64, float64)', fastmath=True)
 def TaitEOS(gamma, B, rho0, rho):
