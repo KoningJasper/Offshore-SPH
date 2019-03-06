@@ -1,4 +1,4 @@
-import sys, tempfile, subprocess, math
+import sys, tempfile, subprocess, math, shutil
 from typing import List, Tuple
 from time import perf_counter
 
@@ -72,6 +72,15 @@ class Plot():
         self.ymax = ymax
 
         self.exportAllFrames = exportAllFrames
+
+        self.check()
+
+    def check():
+        """
+            Verifies that ffmpeg is in the path.
+        """
+        if shutil.which('ffmpeg') is None:
+            raise Exception("ffmpeg is not defined, check you path. Without ffmpeg, plots cannot be created.")
 
     def save(self, file: str):
         """
