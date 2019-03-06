@@ -18,7 +18,6 @@ from src.Kernels.Kernel import Kernel
 from src.Integrators.Integrator import Integrator
 from src.Equations.TimeStep import TimeStep
 from src.Equations.KineticEnergy import KineticEnergy
-from src.Tools.NearNeighbours import NearNeighbours
 from src.Tools.NNLinkedList import NNLinkedList
 from src.Tools.SolverTools import computeProps, findActive
 
@@ -53,7 +52,7 @@ class Solver:
 
     damping: float = 0.05 # Damping factor
 
-    def __init__(self, method: Method, integrator: Integrator, kernel: Kernel, duration: float = 1.0, quick: bool = True, incrementalWriteout: bool = True, incrementalFile: str = "export", incrementalFreq: int = 1000, exportProperties: List[str] = ['x', 'y', 'p'], kE: float = 8.0, maxSettle: int = 500):
+    def __init__(self, method: Method, integrator: Integrator, kernel: Kernel, duration: float = 1.0, quick: bool = True, incrementalWriteout: bool = True, incrementalFile: str = "export", incrementalFreq: int = 1000, exportProperties: List[str] = ['x', 'y', 'p'], kE: float = 0.8, maxSettle: int = 500):
         """
         Initializes a new solver object. The solver orchestrates the entire solving of the SPH simulation.
 
@@ -88,7 +87,7 @@ class Solver:
             Properties to include in the final export, more properties will require more storage.
 
         kE: float
-            Kinetic energy per particle treshold, when to stop settling, given in Joule.
+            Kinetic energy factor when to stop settling, as fraction of initial kinetic energy. Default: 0.8
         
         maxSettle: int
             Maximum number of timesteps to take during settling.
@@ -103,7 +102,7 @@ class Solver:
         # Set properties
         self.duration  = duration
         self.quick     = quick
-        self.kE        = kE
+        self.kEF       = kE
         self.maxSettle = maxSettle
 
         # Incremental write-out
@@ -173,6 +172,9 @@ class Solver:
 
         # Set 0-th time-step
         self.data.append(self.particleArray[:])
+
+        # Compute initial kinetic energy
+        self.kE = KineticEnergy(self.num_particles, self.particleArray[self.indexes]) * self.kEF
 
         # Create export lists, and store 0-th timestep.
         for key in self.exportProperties:
@@ -325,7 +327,7 @@ class Solver:
             if settled == False and t_step > 1:
                 # Compute kinetic energy
                 ke = KineticEnergy(self.num_particles, self.particleArray[self.indexes])
-                if ke < (self.kE * self.fluid_count) or t_step > self.maxSettle:
+                if ke < self.kE or t_step > self.maxSettle:
                     if t_step > self.maxSettle:
                         println(f'{Fore.YELLOW}WARNING!{Style.RESET_ALL} Maximum settle steps reached, check configuration, maybe increase spacing between wall and particles.')
                     # Remove the settling bar

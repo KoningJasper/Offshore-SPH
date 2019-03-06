@@ -73,15 +73,13 @@ class test_helper(unittest.TestCase):
 
     @staticmethod
     def new_particles(N: int, mass: float):
-        helper = Helpers(1000.0)
-        new = helper.box(0, 25, 0, 25, N * N, hex=False, mass=mass)
-
-        r0 = 25 / N # Distance between boundary particles.
+        r0 = 25 / N
+        new = Helpers.rect(0, 25, 0, 25, r0=r0, pack=False, mass=mass)
 
         # Create boundaries
-        bottom = helper.box(xmin=-2 * r0, xmax=150 + r0 / 2, ymin=-2.5*r0, ymax=-2.5*r0, r0=r0, hex=False, mass=1.5 * mass, type=ParticleType.Boundary)
-        left   = helper.box(xmin=-2.5 * r0, xmax=-2.5 * r0, ymin=-2*r0, ymax=30 + r0 / 2, r0=r0, hex=False, mass=1.5 * mass, type=ParticleType.Boundary)
-        temp   = helper.box(xmin=25 + 2.5 * r0, xmax=25 + 2.5 * r0, ymin=-2*r0, ymax=30 + r0 / 2, r0=r0, hex=False, mass=1.5 * mass, type=ParticleType.TempBoundary)
+        bottom = Helpers.rect(xmin=-2 * r0, xmax=150 + r0 / 2, ymin=-2.5*r0, ymax=-2.5*r0, r0=r0, pack=False, mass=1.5 * mass, label=ParticleType.Boundary)
+        left   = Helpers.rect(xmin=-2.5 * r0, xmax=-2.5 * r0, ymin=-2*r0, ymax=30 + r0 / 2, r0=r0, pack=False, mass=1.5 * mass, label=ParticleType.Boundary)
+        temp   = Helpers.rect(xmin=25 + 2.5 * r0, xmax=25 + 2.5 * r0, ymin=-2*r0, ymax=30 + r0 / 2, r0=r0, pack=False, mass=1.5 * mass, label=ParticleType.TempBoundary)
 
         return np.concatenate((new, bottom, left, temp))
 
