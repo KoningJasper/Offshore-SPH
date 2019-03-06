@@ -1,84 +1,80 @@
 import numpy as np
-from math import ceil
+from math import ceil, floor
 from src.Common import particle_dtype, ParticleType
 
-class Helpers():
-    def __init__(self, rho0: float = 1000.):
-        """ This class contains some particle helpers. """
-        self.rho0 = rho0
-
-    def box(self, xmin: float, xmax: float, ymin: float, ymax: float, N: int = None, r0: float = None, mass: float = 1.0, hex: bool = True, type: ParticleType = ParticleType.Fluid) -> np.array:
+class Helpers:
+    @staticmethod
+    def rect(xmin: float, xmax: float, ymin: float, ymax: float, r0: float, mass: float = 1.0, rho0: float = 1000.0, pack: bool = False, label: ParticleType = ParticleType.Fluid, strict: bool = False) -> np.array:
         """
-            Creates a particle array that represents a box in a square configuration.
+            Creates a particle array that represents a rectangle in a square configuration.
 
             Parameters
             ----------
             xmin: float
-                Start of the box
+                Start of the rectangle
             xmax: float
-                End of the box
+                End of the rectangle
             ymin: float
-                Start of the box in y-direction
+                Start of the rectangle in y-direction
             ymax: float
-                End of the box in y-direction
-            N: int
-                Number of particles to use for the box, in-total. Either r0 or N needs to be set.
+                End of the rectangle in y-direction
             r0: float
-                Separation between particles. Either r0 or N needs to be set.
-            hex: bool
-                Should the particles be hex-packed, more energy efficient. Reduces settling time; generally recommended.
-            type: ParticleType
+                Separation between particles.
+            pack: bool
+                Should the particles be hex-packed, more energy efficient.
+            label: ParticleType
                 The particle type of the particle
+            strict: bool
+                Enforce strict boundary checking, hex packing shifts particles. This removes those shifted particles that shift out of the rectangle box
             
             Returns
             -------
             particles: np.array
-                Particle array of type particle_dtype with x and y filled in with the box values.
+                Particle array of type particle_dtype with x and y filled in with the rectangle values.
 
             Notes
             -----
-            The number of actual particles can deviate from the set target if the box is not square and or if hex-packing is enabled.
+            The number of actual particles can deviate from the set target if packing is set, the rectangle is not square, and strict boundary checking is not enforced.
         """
 
-        # Check condition that atleast one of the two is set.
-        assert((N != None) or (r0 != None))
-
-        # Determine particle separation
+        # Ranges
         xrange = xmax - xmin
         yrange = ymax - ymin
 
-        if N != None:
-            N2 = np.sqrt(N)
-            Nx = max(1, ceil(xrange / yrange * N2))
-            Ny = max(1, ceil(yrange / xrange * N2))
-        else:
-            Nx = max(1, ceil(xrange / r0))
-            Ny = max(1, ceil(yrange / r0))
+        # Compute n
+        Nx = max(1, ceil(xrange / r0))
+        Ny = max(1, ceil(yrange / r0))
 
-        # Create the mesh-grid
+        # Create some particles
         xv = np.linspace(xmin, xmax, Nx)
         yv = np.linspace(ymin, ymax, Ny)
-        x, y = np.meshgrid(xv, yv)
+        x, y = np.meshgrid(xv, yv, indexing='ij')
+        x = x.ravel(); y = y.ravel()
 
-        if hex == True:
-            # Shift particles by half particle separation for hexgrid
-            x[1::2] = x[1::2] + xrange / (Nx - 1) / 2
-            x = x.ravel(); y = y.ravel()
-
-            # Delete the ones outside the domain.
-            mask = np.ones(len(x), dtype=np.bool)
-            mask[2*Nx-1::2*Nx] = False
-            x = x[mask]; y = y[mask]
-        else:
-            x = x.ravel(); y = y.ravel()
-
-        # Assign to a particle array
+        # Create the particles
         pA = np.zeros(len(x), dtype=particle_dtype)
-        pA['x'] = x; pA['y'] = y
-        
-        # Initialize other fields
-        pA['label'] = type
-        pA['rho']   = self.rho0
+        pA['label'] = label
+        pA['x']     = x
+        pA['y']     = y
         pA['m']     = mass
+        pA['rho']   = rho0
 
+        # Use hex packing
+        if pack == True and xrange > 0:
+            # Iterate the rows of particles
+            for i in range(floor(Nx / 2)):
+                for p in pA[2*i*Ny : 2*i*Ny + Ny]:
+                    p['y'] += r0 / 2
+
+            if strict == True:
+                # Check each particle
+                saved = []
+                for p in pA:
+                    if p['x'] > xmax or p['x'] < xmin:
+                        continue
+                    if p['y'] > ymax or p['y'] < ymin:
+                        continue
+                    saved.append(p)
+
+                pA = np.array(saved)
         return pA
