@@ -58,7 +58,7 @@ def main():
 
     # Create the solver
     kernel     = CubicSpline()
-    method     = WCSPH(height=height, rho0=rho0, num_particles=len(pA), useXSPH=XSPH)
+    method     = WCSPH(height=height, rho0=rho0, useXSPH=XSPH)
     integrator = PEC(useXSPH=XSPH, strict=True)
     solver     = Solver(method, integrator, kernel, duration, quick=True, incrementalWriteout=False)
 

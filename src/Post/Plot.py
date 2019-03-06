@@ -121,10 +121,12 @@ class Plot():
         """ Loads the required parameters from the file. """
         
         with h5py.File(self.input, 'r') as h5f:
-            self.x   = h5f['x'][:]
-            self.y   = h5f['y'][:]
-            self.p   = h5f['p'][:]
-            self.dts = h5f['dt_a'][:]
+            self.x          = h5f['x'][:]
+            self.y          = h5f['y'][:]
+            self.p          = h5f['p'][:]
+            self.dts        = h5f['dt_a'][:]        # The actual time
+            self.settleTime = h5f['settleTime'][()]
+            
 
         # Compute duration
         self.duration = np.sum(self.dts)
@@ -148,7 +150,7 @@ class Plot():
         for frame in range(len(self.x)):
             if t >= targets[exp_frames]:
                 frames.append(frame)
-                t_series.append(t)
+                t_series.append(t - self.settleTime)
                 exp_frames += 1
             t += self.dts[frame]
 

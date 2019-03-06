@@ -1,6 +1,6 @@
 import abc
 import numpy as np
-from src.Particle import Particle
+from typing import List
 
 class Method():
     """ 
@@ -9,25 +9,25 @@ class Method():
         Will include all possible variables to the underlying functions so they can decide what to use.
     """
     @abc.abstractmethod
-    def initialize(self, p: Particle) -> Particle:
+    def initialize(self, pA: np.array) -> np.array:
         raise Exception('No implemented!')
 
     @abc.abstractmethod
-    def compute_speed_of_sound(self, p: Particle) -> float:
+    def compute_speed_of_sound(self, pA: np.array) -> np.array:
         raise Exception('No implemented!')
 
     @abc.abstractmethod
-    def compute_pressure(self, p: Particle) -> float:
+    def compute_pressure(self, pA: np.array) -> np.array:
         raise Exception('No implemented!')
 
     @abc.abstractmethod
-    def compute_density_change(self, p: Particle, vij: np.array, dwij: np.array) -> float:
+    def compute_density_change(self, p: np.array, comp: np.array) -> float:
         raise Exception('No implemented!')
 
     @abc.abstractmethod
-    def compute_acceleration(self, i: int, p: Particle, xij: np.array, rij: np.array, vij: np.array, pressure: np.array, rho: np.array, hij: np.array, cij: np.array, wij: np.array, dwij: np.array) -> np.array:
+    def compute_acceleration(self, p: np.array, comp: np.array) -> List[float]:
         raise Exception('No implemented!')
 
     @abc.abstractmethod
-    def compute_velocity(self, i: int, p: Particle) -> np.array:
+    def compute_velocity(self, p: np.array, comp: np.array) -> List[float]:
         raise Exception('No implemented!')

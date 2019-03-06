@@ -1,6 +1,7 @@
 # Import python packages
-import sys
-import math
+import sys, math
+from typing import List, Tuple, Dict
+from time import perf_counter
 
 # Other packages
 import numpy as np
@@ -8,14 +9,10 @@ import h5py
 from colorama import Fore, Style
 from prettytable import PrettyTable
 from tqdm import tqdm
-from scipy.spatial.distance import cdist
-from numba import prange, jit, njit, cfunc
-from typing import List, Tuple, Dict
-from time import perf_counter
+from numba import prange, jit, njit
 
 # Own components
-from src.Common import particle_dtype, computed_dtype, ParticleType, get_label_code
-from src.Particle import Particle
+from src.Common import particle_dtype, computed_dtype, ParticleType
 from src.Methods.Method import Method
 from src.Kernels.Kernel import Kernel
 from src.Integrators.Integrator import Integrator
@@ -164,7 +161,7 @@ class Solver:
         println(f'{Fore.YELLOW}{self.num_particles}{Style.RESET_ALL} total particles, {Fore.YELLOW}{self.fluid_count}{Style.RESET_ALL} fluid particles.')
 
         # Calc h
-        (_, _, h) = self._nbrs()
+        h = Solver.computeH(1.3, self.num_particles, self.particleArray[self.indexes]['m'], self.particleArray[self.indexes]['rho'])
         self.particleArray['h'][self.indexes] = h
 
         # Initialize particles
@@ -213,23 +210,6 @@ class Solver:
             h[j] = sigma * (m[j] / rho[j]) ** f
         
         return h
-
-    @jit(fastmath=True)
-    def _nbrs(self):
-        start = perf_counter()
-
-        pA = self.particleArray[self.indexes]
-
-        # Distance and neighbourhood
-        r = np.transpose(np.vstack((pA['x'], pA['y'])))
-        dist = cdist(r, r, 'euclidean')
-
-        # Distance of closest particle time 1.3
-        h = Solver.computeH(1.3, self.num_particles, pA['m'], pA['rho'])
-        #h: np.array = 1.3 * np.ma.masked_values(dist, 0.0, copy=False).min(1)
-
-        self.timing_data['neighbour_hood'] += perf_counter() - start
-        return (r, dist, h)
 
     @staticmethod
     @njit(fastmath=True)
@@ -297,7 +277,7 @@ class Solver:
         start_all = perf_counter()
 
         # Check particle length.
-        if self.particleArray == None or len(self.particleArray) != self.num_particles:
+        if len(self.particleArray) == 0 or len(self.particleArray) != self.num_particles:
             raise Exception('No or invalid particles set!')
 
         println('Started solving...')
@@ -347,7 +327,7 @@ class Solver:
                 ke = KineticEnergy(self.num_particles, self.particleArray[self.indexes])
                 if ke < (self.kE * self.fluid_count) or t_step > self.maxSettle:
                     if t_step > self.maxSettle:
-                        println(f'{Fore.YELLOW}WARNING!{Style.RESET_ALL} Maximum settle steps reached, maybe increase damping?')
+                        println(f'{Fore.YELLOW}WARNING!{Style.RESET_ALL} Maximum settle steps reached, check configuration, maybe increase spacing between wall and particles.')
                     # Remove the settling bar
                     sbar.close()
 

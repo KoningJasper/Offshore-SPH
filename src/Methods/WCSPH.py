@@ -1,5 +1,5 @@
 import numpy as np
-from numba import njit, jit, float64, jitclass, prange
+from numba import njit, jit, float64, jitclass, prange, boolean
 from typing import List
 from src.Common import _stack
 from src.Methods.Method import Method
@@ -7,7 +7,7 @@ from src.Equations import Continuity, BodyForce, Momentum, TaitEOS, XSPH
 from src.Particle import Particle
 
 spec = [
-    ('useXSPH', float64),
+    ('useXSPH', boolean),
     ('height', float64),
     ('rho0', float64),
 
@@ -26,13 +26,12 @@ spec = [
 @jitclass(spec)
 class WCSPH(Method):
     """ The WCSPH method as described by Monaghan in the 1992 free-flow paper. """
-    def __init__(self, height, rho0, num_particles, useXSPH = 1.0):
+    def __init__(self, height: float, rho0: float, useXSPH: bool):
         """
             useXSPH has to be enabled in both the integrator and the method!
         """
         # Assign primary variables.
         self.height  = height
-
         self.rho0    = rho0
         self.useXSPH = useXSPH
 
@@ -46,12 +45,21 @@ class WCSPH(Method):
         self.alpha = 0.01
         self.beta  = 0.0
 
-    def getOptions(self):
-        return [0.0]
-
     # Override
-    def initialize(self, pA):
-        """ Initialize the particles, should only be run once at the start of the solver. """
+    def initialize(self, pA: np.array):
+        """
+            Initialize the particles, should only be run once at the start of the solver. 
+
+            Parameters
+            ----------
+            pA: np.array
+                Particle array, all particles
+
+            Returns
+            -------
+            pA: np.array
+                Initialized particle array, all particles.
+        """
         rho = TaitEOS.TaitEOS_height(
             self.rho0,
             self.height,
@@ -65,7 +73,18 @@ class WCSPH(Method):
 
         return pA
 
-    def compute_speed_of_sound(self, pA):
+    def compute_speed_of_sound(self, pA: np.array) -> np.array:
+        """
+            Parameters
+            ----------
+            pA: np.array
+                Particle array, all particles
+
+            Returns
+            -------
+            cs: np.array
+                Array of speeds of sound, length N.
+        """
         # Speed of sound is a constant with Tait, so just return that.
         J = len(pA)
         cs = np.zeros(J, dtype=np.float64)
@@ -73,7 +92,18 @@ class WCSPH(Method):
             cs[j] = self.co
         return cs
 
-    def compute_pressure(self, pA: np.array):
+    def compute_pressure(self, pA: np.array) -> np.array:
+        """
+            Parameters
+            ----------
+            pA: np.array
+                Particle array, all particles
+
+            Returns
+            -------
+            p: np.array
+                Array with pressure for each of the particles
+        """
         return TaitEOS.TaitEOS(
             self.gamma,
             self.B,
@@ -81,8 +111,15 @@ class WCSPH(Method):
             pA['rho']
         )
 
-    # Override
-    def compute_acceleration(self, p, comp):
+    def compute_acceleration(self, p: np.array, comp: np.array):
+        """
+            Parameters
+            ----------
+            p: np.array
+                Single particle
+            comp:
+                Computed properties of near particles.
+        """
         # Momentum
         [a_x, a_y] = Momentum.Momentum(
             self.alpha,
@@ -94,9 +131,16 @@ class WCSPH(Method):
         # Gravity
         return [a_x, a_y - 9.81]
 
-    # Override
-    def compute_velocity(self, p, comp):
-        if self.useXSPH > 0.0:
+    def compute_velocity(self, p: np.array, comp: np.array):
+        """
+            Parameters
+            ----------
+            p: np.array
+                Single particle
+            comp:
+                Computed properties of near particles.
+        """
+        if self.useXSPH == True:
             # Compute XSPH Term
             [xsph_x, xsph_y] = XSPH.XSPH(self.epsilon, p, comp)
 
@@ -106,7 +150,14 @@ class WCSPH(Method):
             # Velocity stays the same
             return [p['vx'], p['vy'], p['vx'], p['vy'],]
 
-    # override
-    def compute_density_change(self, p, comp):
+    def compute_density_change(self, p: np.array, comp: np.array):
+        """
+            Parameters
+            ----------
+            p: np.array
+                Single particle
+            comp:
+                Computed properties of near particles.
+        """
         return Continuity.Continuity(p, comp)
 
