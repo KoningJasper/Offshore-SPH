@@ -13,17 +13,18 @@ from src.Post.Plot import Plot
 from src.Common import ParticleType
 
 def create_particles(N: int, mass: float):
-    r0 = 25 / N # Distance between boundary particles.
-    rho_b = 1000. # Density of the boundary [kg/m^3]
-    mass_b = mass * 1.5 # Mass of the boundary [kg]
+    r0     = 25 / N     # Distance between boundary particles.
+    rho_b  = 1000.      # Density of the boundary [kg/m^3]
+    mass_b = mass * 1.0 # Mass of the boundary [kg]
 
     # Create some fluid particles
     fluid = Helpers.rect(xmin=0, xmax=25, ymin=0, ymax=25, r0=r0, mass=mass, rho0=rho_b, pack=True)
 
     # Maximum and minimum values of boundaries
-    x_min = - 2 * r0
-    x_max = 150
-    y_min = - 2 * r0
+    # Keep 1.5 spacing
+    x_min = - 1.5 * r0
+    x_max = 180
+    y_min = - 1.5 * r0
     y_max = 30
     
     # Create the boundary
@@ -36,7 +37,7 @@ def create_particles(N: int, mass: float):
 def main():
     # ----- Setup ----- #
     # Main parameters
-    N = 30; rho0 = 1000.0; duration = 1.0
+    N = 50; rho0 = 1000.0; duration = 5.0
     XSPH = True; height = 25.0; plot = True
 
     # Create some particles

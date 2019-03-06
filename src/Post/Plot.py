@@ -126,7 +126,6 @@ class Plot():
             self.p          = h5f['p'][:]
             self.dts        = h5f['dt_a'][:]        # The actual time
             self.settleTime = h5f['settleTime'][()]
-            
 
         # Compute duration
         self.duration = np.sum(self.dts)
@@ -156,7 +155,7 @@ class Plot():
 
         # Add the final frame
         frames.append(len(self.x) - 1)
-        t_series.append(self.duration)
+        t_series.append(self.duration - self.settleTime)
         
         return frames, t_series
 
