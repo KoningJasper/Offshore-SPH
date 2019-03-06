@@ -1,6 +1,6 @@
 from numba import njit, prange
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True)
 def Continuity(p, comp):
     J = len(comp); _arho = 0.0
     for j in prange(J):

@@ -3,7 +3,7 @@ import math
 from numba import njit, prange
 from src.Common import ParticleType
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True)
 def BoundaryForce(r0, D, p1, p2, p, comp):
     """
         Computes the boundary force based on the equations provided in Monaghan 1992

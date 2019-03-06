@@ -2,7 +2,7 @@ import numpy as np
 from typing import List
 from numba import njit, prange
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True)
 def XSPH(epsilon, p, comp):
     """
         XSPH Correction

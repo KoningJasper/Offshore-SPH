@@ -1,7 +1,7 @@
 from numba import njit, prange
 from typing import List
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True)
 def Momentum(alpha, beta, p, comp) -> List[float]:
     """
         Monaghan Momentum equation

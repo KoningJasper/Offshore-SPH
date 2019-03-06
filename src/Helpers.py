@@ -7,7 +7,7 @@ class Helpers():
         """ This class contains some particle helpers. """
         self.rho0 = rho0
 
-    def box(self, xmin: float, xmax: float, ymin: float, ymax: float, N: int = None, r0: float = None, hex: bool = True, type: ParticleType = ParticleType.Fluid) -> np.array:
+    def box(self, xmin: float, xmax: float, ymin: float, ymax: float, N: int = None, r0: float = None, mass: float = 1.0, hex: bool = True, type: ParticleType = ParticleType.Fluid) -> np.array:
         """
             Creates a particle array that represents a box in a square configuration.
 
@@ -74,15 +74,11 @@ class Helpers():
 
         # Assign to a particle array
         pA = np.zeros(len(x), dtype=particle_dtype)
-        pA['x'] = x; pA['y'] = y;
+        pA['x'] = x; pA['y'] = y
         
         # Initialize other fields
         pA['label'] = type
         pA['rho']   = self.rho0
+        pA['m']     = mass
 
         return pA
-
-        
-
-
-

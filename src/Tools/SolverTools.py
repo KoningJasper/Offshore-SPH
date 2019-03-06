@@ -1,12 +1,10 @@
 import numpy as np
-from math import sqrt
 from typing import List, Tuple
 from numba import njit, prange, jit, jitclass
 from src.Common import computed_dtype
-from scipy.spatial.distance import cdist
 
-@njit(fastmath=True, cache=True)
-def computeProps(i: int, pA: np.array, near_arr: List[int], evFunc, gradFunc):
+@njit(fastmath=True)
+def computeProps(i: int, pA: np.array, near_arr: List[int], h_i, q_i, dist, evFunc, gradFunc):
     """
         Computes the computed properties (other particles).
 
@@ -29,7 +27,7 @@ def computeProps(i: int, pA: np.array, near_arr: List[int], evFunc, gradFunc):
             Array of computed properties, with dtype: computed_dtype
     """
     # Just assign the easy props first
-    calcProps = _assignProps(i, pA, near_arr)
+    calcProps = _assignProps(i, pA, near_arr, h_i, q_i, dist)
 
     # Kernel values
     w    = evFunc(calcProps['r'], calcProps['h'])
@@ -43,7 +41,7 @@ def computeProps(i: int, pA: np.array, near_arr: List[int], evFunc, gradFunc):
 
     return calcProps
 
-@jit(fastmath=True, cache=True)
+@jit(fastmath=True)
 def findActive(J: int, pA: np.array) -> Tuple[float, np.array]:
     """
         Finds the active particles and returns their index and total active count.
@@ -71,14 +69,12 @@ def findActive(J: int, pA: np.array) -> Tuple[float, np.array]:
     a_c = np.sum(a_i)
     return a_c, a_i
 
-@njit(fastmath=True, cache=True)
-def _assignProps(i: int, particleArray: np.array, near_arr: np.array):
+@njit(fastmath=True)
+def _assignProps(i: int, particleArray: np.array, near_arr: np.array, h_i: np.array, q_i: np.array, dist: np.array):
     J = len(near_arr)
 
     # Create empty array
     calcProps = np.zeros(J, dtype=computed_dtype)
-
-    h = particleArray[i]['h']
 
     # Fill based on existing data.
     for j in prange(J):
@@ -92,16 +88,14 @@ def _assignProps(i: int, particleArray: np.array, near_arr: np.array):
         calcProps[j]['rho'] = pA['rho']
 
         # Pre-calculated properties
-        calcProps[j]['h'] = 0.5 * (h + pA['h']) # average h
+        calcProps[j]['h'] = h_i[j] # average h, precalculated
+        calcProps[j]['q'] = q_i[j] # dist / h, precalculated
+        calcProps[j]['r'] = dist[j] # distance, precalculated
 
         # Positional values
         calcProps[j]['x']  = particleArray[i]['x'] - pA['x']
         calcProps[j]['y']  = particleArray[i]['y'] - pA['y']
         calcProps[j]['vx'] = particleArray[i]['vx'] - pA['vx']
         calcProps[j]['vy'] = particleArray[i]['vy'] - pA['vy']
-
-        # Dist
-        calcProps[j]['r'] = sqrt(calcProps[j]['y'] ** 2 + calcProps[j]['y'] ** 2)
-        calcProps[j]['q'] = calcProps[j]['r'] / calcProps[j]['h']
     # END_LOOP
     return calcProps
