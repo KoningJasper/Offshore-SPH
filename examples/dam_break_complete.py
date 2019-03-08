@@ -1,5 +1,5 @@
 # Add parent folder to path
-import sys, os
+import sys, os, math
 sys.path.insert(1, os.path.join(sys.path[0], '..'))
 
 import numpy as np
@@ -10,9 +10,9 @@ from src.Methods.WCSPH import WCSPH
 from src.Kernels.CubicSpline import CubicSpline
 from src.Integrators.PEC import PEC
 from src.Post.Plot import Plot
-from src.Common import ParticleType
+from src.Common import ParticleType, particle_dtype
 
-def create_particles(N: int, mass: float):
+def create_particles(N: int, mass: float, obs: bool):
     r0     = 25 / N     # Distance between boundary particles.
     rho_b  = 1000.      # Density of the boundary [kg/m^3]
     mass_b = mass * 1.0 # Mass of the boundary [kg]
@@ -23,7 +23,7 @@ def create_particles(N: int, mass: float):
     # Maximum and minimum values of boundaries
     # Keep 1.5 spacing
     x_min = - 1.5 * r0
-    x_max = 180
+    x_max = 150
     y_min = - 1.5 * r0
     y_max = 30
     
@@ -32,7 +32,25 @@ def create_particles(N: int, mass: float):
     left   = Helpers.rect(xmin=x_min, xmax=x_min, ymin=y_min, ymax=y_max, r0=r0, mass=mass_b, rho0=rho_b, label=ParticleType.Boundary)
     temp   = Helpers.rect(xmin=25 - x_min, xmax=25 - x_min, ymin=y_min, ymax=y_max, r0=r0, mass=mass_b, rho0=rho_b, label=ParticleType.TempBoundary)
 
-    return np.concatenate((fluid, bottom, left, temp))
+    # Create the triangular thingy
+    # I measured it at 2.5m * 2.5m, starts at 50
+    if obs == True:
+        side = 2.5
+        Nt = math.ceil(side / r0)
+        x = np.linspace(50, 50 + side, Nt)
+        y = np.linspace(0, side, Nt)
+        
+        triag = np.zeros(3 * Nt, dtype=particle_dtype)
+        triag[0:Nt]['x'] = x; triag[0:Nt]['y'] = y # Diag
+        triag[Nt:2*Nt]['x'] = 50 + side; triag[Nt:2*Nt]['y'] = y # Right
+        triag[2*Nt:3*Nt]['x'] = x;         triag[2*Nt:3*Nt]['y'] = 0 # Bottom
+
+        # General properties
+        triag['m'] = mass_b; triag['rho'] = rho_b; triag['label'] = ParticleType.Boundary
+
+        return np.concatenate((fluid, bottom, left, temp, triag))
+    else:
+        return np.concatenate((fluid, bottom, left, temp))
 
 def main():
     # ----- Setup ----- #
@@ -43,7 +61,7 @@ def main():
     # Create some particles
     dA   = 25 * 25 / N ** 2 # Area per particle. [m^2]
     mass = dA * rho0
-    pA   = create_particles(N, mass)
+    pA   = create_particles(N, mass, True)
 
     # Create the solver
     kernel     = CubicSpline()

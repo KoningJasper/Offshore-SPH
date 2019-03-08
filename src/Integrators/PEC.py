@@ -33,23 +33,22 @@ class PEC():
         J = len(pA)
         # Outside of compute loop so prange can be used.
         for j in prange(J):
-            if pA[j]['label'] == ParticleType.Fluid:
-                # Store noughts
-                pA[j]['x0'] = pA[j]['x']
-                pA[j]['y0'] = pA[j]['y']
-                pA[j]['vx0'] = pA[j]['vx']
-                pA[j]['vy0'] = pA[j]['vy']
+            # Store noughts
+            pA[j]['x0'] = pA[j]['x']
+            pA[j]['y0'] = pA[j]['y']
+            pA[j]['vx0'] = pA[j]['vx']
+            pA[j]['vy0'] = pA[j]['vy']
 
-                # Compute mid-point
-                if self.useXSPH == True:
-                    pA[j]['x'] = pA[j]['x'] + 0.5 * dt * pA[j]['xsphx']
-                    pA[j]['y'] = pA[j]['y'] + 0.5 * dt * pA[j]['xsphy']
-                else:
-                    pA[j]['x'] = pA[j]['x'] + 0.5 * dt * pA[j]['vx']
-                    pA[j]['y'] = pA[j]['y'] + 0.5 * dt * pA[j]['vy']
+            # Compute mid-point
+            if self.useXSPH == True:
+                pA[j]['x'] = pA[j]['x'] + 0.5 * dt * pA[j]['xsphx']
+                pA[j]['y'] = pA[j]['y'] + 0.5 * dt * pA[j]['xsphy']
+            else:
+                pA[j]['x'] = pA[j]['x'] + 0.5 * dt * pA[j]['vx']
+                pA[j]['y'] = pA[j]['y'] + 0.5 * dt * pA[j]['vy']
 
-                pA[j]['vx'] = (pA[j]['vx'] + 0.5 * dt * pA[j]['ax']) / (1 + 0.5 * damping)
-                pA[j]['vy'] = (pA[j]['vy'] + 0.5 * dt * pA[j]['ay']) / (1 + 0.5 * damping)
+            pA[j]['vx'] = (pA[j]['vx'] + 0.5 * dt * pA[j]['ax']) / (1 + 0.5 * damping)
+            pA[j]['vy'] = (pA[j]['vy'] + 0.5 * dt * pA[j]['ay']) / (1 + 0.5 * damping)
             
             # Do these for all
             pA[j]['rho0'] = pA[j]['rho']
@@ -63,23 +62,22 @@ class PEC():
         J = len(pA)
         # Outside of compute loop so prange can be used.
         for j in prange(J):
-            if pA[j]['label'] == ParticleType.Fluid:
-                # Correct mid-point
-                if self.useXSPH == True:
-                    mid_x = pA[j]['x0'] + 0.5 * dt * pA[j]['xsphx']
-                    mid_y = pA[j]['y0'] + 0.5 * dt * pA[j]['xsphy']
-                else:
-                    mid_x = pA[j]['x0'] + 0.5 * dt * pA[j]['vx']
-                    mid_y = pA[j]['y0'] + 0.5 * dt * pA[j]['vy']
+            # Correct mid-point
+            if self.useXSPH == True:
+                mid_x = pA[j]['x0'] + 0.5 * dt * pA[j]['xsphx']
+                mid_y = pA[j]['y0'] + 0.5 * dt * pA[j]['xsphy']
+            else:
+                mid_x = pA[j]['x0'] + 0.5 * dt * pA[j]['vx']
+                mid_y = pA[j]['y0'] + 0.5 * dt * pA[j]['vy']
 
-                mid_vx = (pA[j]['vx0'] + 0.5 * dt * pA[j]['ax']) / (1 + 0.5 * damping)
-                mid_vy = (pA[j]['vy0'] + 0.5 * dt * pA[j]['ay']) / (1 + 0.5 * damping)
+            mid_vx = (pA[j]['vx0'] + 0.5 * dt * pA[j]['ax']) / (1 + 0.5 * damping)
+            mid_vy = (pA[j]['vy0'] + 0.5 * dt * pA[j]['ay']) / (1 + 0.5 * damping)
 
-                # Compute final
-                pA[j]['x'] = 2 * mid_x - pA[j]['x0']
-                pA[j]['y'] = 2 * mid_y - pA[j]['y0']
-                pA[j]['vx'] = 2 * mid_vx - pA[j]['vx0']
-                pA[j]['vy'] = 2 * mid_vy - pA[j]['vy0']
+            # Compute final
+            pA[j]['x'] = 2 * mid_x - pA[j]['x0']
+            pA[j]['y'] = 2 * mid_y - pA[j]['y0']
+            pA[j]['vx'] = 2 * mid_vx - pA[j]['vx0']
+            pA[j]['vy'] = 2 * mid_vy - pA[j]['vy0']
             
             # Do these for all
             mid_rho = pA[j]['rho0'] + 0.5 * dt * pA[j]['drho']

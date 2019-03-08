@@ -58,6 +58,8 @@ class Plot():
                 Should all frames be exported or only at framerate intervals. Takes significantly longer.
         """
 
+        self.check()
+
         self.input     = file
         self.slowdown  = slowdown
         self.video_fps = fps
@@ -72,9 +74,7 @@ class Plot():
 
         self.exportAllFrames = exportAllFrames
 
-        self.check()
-
-    def check():
+    def check(self):
         """
             Verifies that ffmpeg is in the path.
         """
