@@ -3,13 +3,19 @@ from numba import njit, jit, float64, jitclass, prange, boolean
 from typing import List
 from src.Common import _stack
 from src.Methods.Method import Method
-from src.Equations import Continuity, BodyForce, Momentum, TaitEOS, XSPH
+from src.Equations import Continuity, BodyForce, Momentum, TaitEOS, XSPH, BoundaryForce
 from src.Particle import Particle
 
 spec = [
     ('useXSPH', boolean),
     ('height', float64),
     ('rho0', float64),
+
+    # Lennard-Jones BoundaryForce
+    ('r0', float64),
+    ('D', float64),
+    ('p1', float64),
+    ('p2', float64),
 
     # XSPH
     ('epsilon', float64),
@@ -25,9 +31,23 @@ spec = [
 ]
 @jitclass(spec)
 class WCSPH(Method):
-    """ The WCSPH method as described by Monaghan in the 1992 free-flow paper. """
-    def __init__(self, height: float, rho0: float, useXSPH: bool):
+    def __init__(self, height: float, r0: float, rho0: float, useXSPH: bool):
         """
+            The WCSPH method as described by Monaghan in the 1992 free-flow paper.
+
+            Parameters
+            ----------
+            height: float
+                Maximum height of the fluid.
+            r0: float
+                Particle separation
+            rho0: float
+                Initial particle/fluid density
+            useXSPH: bool
+                Should XSPH correction be used. XSPH modifies the velocity of the particles to be an averaged property.
+
+            Notes
+            -----
             useXSPH has to be enabled in both the integrator and the method!
         """
         # Assign primary variables.
@@ -44,6 +64,12 @@ class WCSPH(Method):
 
         self.alpha = 0.01
         self.beta  = 0.0
+
+        # Compute LJ BoundaryForce parameters
+        self.r0 = r0
+        self.D  = 5 * 9.81 * self.height
+        self.p1 = 4
+        self.p2 = 2
 
     # Override
     def initialize(self, pA: np.array):
@@ -131,8 +157,11 @@ class WCSPH(Method):
             comp
         )
 
+        # Compute boundary forces
+        [b_x, b_y] = BoundaryForce.BoundaryForce(self.r0, self.D, self.p1, self.p2, p, comp)
+
         # Gravity
-        return [a_x, a_y - 9.81]
+        return [a_x + b_x, a_y + b_y - 9.81]
 
     def compute_velocity(self, p: np.array, comp: np.array):
         """

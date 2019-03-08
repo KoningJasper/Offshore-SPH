@@ -48,24 +48,24 @@ def create_particles(N: int, mass: float, obs: bool):
         # General properties
         triag['m'] = mass_b; triag['rho'] = rho_b; triag['label'] = ParticleType.Boundary
 
-        return np.concatenate((fluid, bottom, left, temp, triag))
+        return r0, np.concatenate((fluid, bottom, left, temp, triag))
     else:
-        return np.concatenate((fluid, bottom, left, temp))
+        return r0, np.concatenate((fluid, bottom, left, temp))
 
 def main():
     # ----- Setup ----- #
     # Main parameters
-    N = 50; rho0 = 1000.0; duration = 5.0
+    N = 40; rho0 = 1000.0; duration = 5.0
     XSPH = True; height = 25.0; plot = True
 
     # Create some particles
-    dA   = 25 * 25 / N ** 2 # Area per particle. [m^2]
-    mass = dA * rho0
-    pA   = create_particles(N, mass, True)
+    dA     = 25 * 25 / N ** 2 # Area per particle. [m^2]
+    mass   = dA * rho0
+    r0, pA = create_particles(N, mass, True)
 
     # Create the solver
     kernel     = CubicSpline()
-    method     = WCSPH(height=height, rho0=rho0, useXSPH=XSPH)
+    method     = WCSPH(height=height, r0=r0, rho0=rho0, useXSPH=XSPH)
     integrator = PEC(useXSPH=XSPH, strict=True)
     solver     = Solver(method, integrator, kernel, duration, quick=True, incrementalWriteout=False)
 
@@ -87,7 +87,7 @@ def main():
     solver.save(exportPath)
 
     if plot == True:
-        plt = Plot(exportPath, title=f'Dam Break (2D); {len(pA)} particles', xmin=-3, xmax=81, ymin=-3, ymax=41)
+        plt = Plot(exportPath, title=f'Dam Break (2D); {len(pA)} particles', xmin=-3, xmax=151, ymin=-3, ymax=41)
         plt.save(f'{sys.path[0]}\\dam-break-2d.mp4')
 
 if __name__ == '__main__':
