@@ -324,7 +324,7 @@ class Solver:
             self.timing_data['storage'] += perf_counter() - start
 
             # End integration-loop
-            if self.damping == 0:
+            if settled == True:
                 # Only move forward if damping
                 t += self.dt
             t_step += 1

@@ -84,7 +84,6 @@ def _assignProps(i: int, particleArray: np.array, near_arr: np.array, h_i: np.ar
         # From self properties
         calcProps[j]['p']   = pA['p']
         calcProps[j]['m']   = pA['m']
-        #calcProps[near_i]['c']   = self.method.compute_speed_of_sound(pA)
         calcProps[j]['rho'] = pA['rho']
 
         # Pre-calculated properties

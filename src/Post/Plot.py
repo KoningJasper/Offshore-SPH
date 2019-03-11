@@ -75,6 +75,8 @@ class Plot():
 
         self.exportAllFrames = exportAllFrames
 
+        self.removed = False
+
     def check(self):
         """
             Verifies that ffmpeg is in the path.
@@ -176,8 +178,10 @@ class Plot():
         self.pl_f.setData(x=self.x[frame, self.fluid_ind], y=self.y[frame, self.fluid_ind], symbolBrush=self.cm.map(self.p[frame, self.fluid_ind] / 1000, 'qcolor'), symbolSize=self.sZ)
         self.pl_b.setData(x=self.x[frame, self.border_ind], y=self.y[frame, self.border_ind], symbolBrush=pg.mkBrush('k'), symbolPen=None, symbolSize=self.sZ)
 
-        if time >= self.settleTime:
+        if time >= 0 and self.removed == False:
             self.pl_t.clear()
+            self.pw.scene().removeItem(self.pl_t)
+            self.removed = True
         else:
             self.pl_t.setData(x=self.x[frame, self.temp_ind], y=self.y[frame, self.temp_ind], symbolBrush=pg.mkBrush('y'), symbolPen=None, symbolSize=self.sZ)
         self.txtItem.setText(f't = {time:f} [s]')
