@@ -1,5 +1,5 @@
 # Add parent folder to path
-import sys, os
+import sys, os, math
 sys.path.insert(1, os.path.join(sys.path[0], '..'))
 
 import numpy as np
@@ -10,7 +10,7 @@ from src.Methods.WCSPH import WCSPH
 from src.Kernels.CubicSpline import CubicSpline
 from src.Integrators.PEC import PEC
 from src.Post.Plot import Plot
-from src.Common import ParticleType
+from src.Common import ParticleType, particle_dtype
 
 def create_particles(Nx: int, rho0: float, x_end: float, y_end: float):
     """
@@ -20,7 +20,7 @@ def create_particles(Nx: int, rho0: float, x_end: float, y_end: float):
     r0   = x_end / Nx # Distance between particles.
 
     # Create some fluid particles
-    fluid = Helpers.rect(xmin=0, xmax=25, ymin=0, ymax=25, r0=r0, mass=1.0, rho0=rho0, pack=True)
+    fluid = Helpers.rect(xmin=0, xmax=x_end, ymin=0, ymax=y_end, r0=r0, mass=1.0, rho0=rho0, pack=True)
 
     # Compute the mass based on the average area
     dA         = x_end * y_end / len(fluid)
@@ -31,7 +31,7 @@ def create_particles(Nx: int, rho0: float, x_end: float, y_end: float):
     x_min = - 2 * r0
     x_max = x_end + 2 * r0
     y_min = - 2 * r0
-    y_max = y_end
+    y_max = y_end + 2 * r0 + 50
     mass_b = mass * 1.5 # Mass of the boundary [kg]
     
     # Create the boundary
@@ -39,26 +39,60 @@ def create_particles(Nx: int, rho0: float, x_end: float, y_end: float):
     left   = Helpers.rect(xmin=x_min, xmax=x_min, ymin=y_min, ymax=y_max, r0=r0, mass=mass_b, rho0=rho0, label=ParticleType.Boundary)
     right  = Helpers.rect(xmin=x_max, xmax=x_max, ymin=y_min, ymax=y_max, r0=r0, mass=mass_b, rho0=rho0, label=ParticleType.Boundary)
 
-    # TODO: Ship/plate moving boundary.
+    # Ice and plate.
+    p = plate(r0, x_end - 20, y_end + 10, mass_b, rho0)
+    #i = ice(r0, y_max + r0, mass_b, rho0, 10.0)
 
-    return np.concatenate((fluid, bottom, left, right))
+    return r0, np.concatenate((fluid, bottom, left, right, p))
+
+def plate(r0: float, x: float, y: float, m: float, rho0: float):
+    l = 25; angle = 45.0
+    N = math.ceil(l / r0)
+    plate = np.zeros(N, dtype=particle_dtype)
+    plate['label'] = ParticleType.Boundary
+    plate['m']     = m
+    plate['rho']   = rho0
+
+    # Rotate with $angle$ deg.
+    plate['x'] = x + np.linspace(0, l, N) * np.cos(np.deg2rad(angle))
+    plate['y'] = y - np.linspace(0, l, N) * np.sin(np.deg2rad(angle))
+
+    return plate
+
+def ice(r0: float, y: float, m: float, rho0: float, vx: float):
+    l = 100; N = math.ceil(l / r0); x_start = -15
+    ice = np.zeros(N, dtype=particle_dtype)
+    ice['label'] = ParticleType.Boundary
+    ice['vx']    = vx; ice['xsphx'] = vx
+    ice['m']     = m
+    ice['rho']   = rho0
+    ice['y']     = y
+    ice['x']     = np.linspace(x_start, x_start + l, N)
+
+    # Copy 3 times
+    i1 = np.array(ice, copy=True)
+    i2 = np.array(ice, copy=True)
+    i3 = np.array(ice, copy=True)
+    i2['y'] = y + r0; i3['y'] = y + 2 * r0
+
+    return np.concatenate((i1, i2, i3))
 
 def main():
     # ----- Setup ----- #
     # Simulation parameters
-    Nx = 30; duration = 1.0
-    height = 25.0; width = 25.0
+    Nx = 70; duration = 5.0
+    height = 20.0; width = 70.0
 
     # Other parameters
     rho0 = 1000.0; XSPH = True 
     plot = True
 
     # Create some particles
-    pA = create_particles(Nx, rho0, width, height)
+    r0, pA = create_particles(Nx, rho0, width, height)
 
     # Create the solver
     kernel     = CubicSpline()
-    method     = WCSPH(height=height, rho0=rho0, useXSPH=XSPH)
+    method     = WCSPH(height=height, rho0=rho0, r0=r0, useXSPH=XSPH)
     integrator = PEC(useXSPH=XSPH, strict=True)
     solver     = Solver(method, integrator, kernel, duration, quick=True, incrementalWriteout=False)
 
