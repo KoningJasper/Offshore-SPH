@@ -43,13 +43,13 @@ class TimeStep:
         return min(c, f), c, f
 
     @staticmethod
-    @njit('float64(float64, float64, float64)', fastmath=True, cache=True)
+    @njit('float64(float64, float64, float64)', fastmath=True)
     def courant(cfl, h_min, c_max) -> float:
         """ Timestep due to courant condition. """
         return cfl * h_min / c_max
 
     @staticmethod
-    @njit('float64(float64, float64, float64)', fastmath=True, cache=True)
+    @njit('float64(float64, float64, float64)', fastmath=True)
     def force(cfl, min_h, max_a) -> float:
         """ Time-step due to force. """
         if max_a < 1e-12:
@@ -58,7 +58,7 @@ class TimeStep:
             return cfl * sqrt(min_h / max_a)
 
     @staticmethod
-    @njit(fastmath=True, cache=True)
+    @njit(fastmath=True)
     def computeVars(J: int, pA: np.array):
         """
             Computes the minimum h, maximum speed of sound, and maximum acceleration for a given particle array.
@@ -80,6 +80,7 @@ class TimeStep:
                 minimum h, maximum speed of sound, and maximum acceleration
         """
         h = []; c = []; a2 = []
+        # Outside of compute loop so prange can be used.
         for j in prange(J):
             if pA[j]['label'] == ParticleType.Fluid:
                 h.append(pA[j]['h'])

@@ -1,8 +1,8 @@
 import numpy as np
 from typing import List
-from numba import njit, prange
+from numba import njit
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True)
 def XSPH(epsilon, p, comp):
     """
         XSPH Correction
@@ -23,7 +23,7 @@ def XSPH(epsilon, p, comp):
     """
     xsph = [0.0, 0.0]
     J = len(comp)
-    for j in prange(J):
+    for j in range(J):
         rho_ij = 0.5 * (p['rho'] + comp[j]['rho'])
         fac = - epsilon * comp[j]['m'] * comp[j]['w'] / rho_ij
         xsph[0] += fac * comp[j]['vx']

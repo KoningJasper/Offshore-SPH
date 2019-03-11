@@ -1,7 +1,7 @@
 import numpy as np
 from numba import vectorize
 
-@vectorize('float64(float64, float64)', fastmath=True, cache=True)
+@vectorize('float64(float64, float64)', fastmath=True)
 def BodyForce(f, a):
     """
         Adds a body force/acceleration to the acceleration.

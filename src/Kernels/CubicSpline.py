@@ -1,6 +1,6 @@
 import numpy as np
 from math import pow, pi
-from numba import njit, prange
+from numba import njit
 from src.Kernels.Kernel import Kernel
 
 class CubicSpline(Kernel):
@@ -10,7 +10,7 @@ class CubicSpline(Kernel):
         self.alpha = 10 / (7 * pi)
 
     @staticmethod
-    @njit(fastmath=True, cache=True)
+    @njit(fastmath=True)
     def evaluate(r: np.array, h: np.array):
         """
         Evaluates the kernel function for the given points.
@@ -24,7 +24,7 @@ class CubicSpline(Kernel):
         """
         k = np.zeros_like(r)
         fac = 10 / (7 * pi)
-        for j in prange(len(r)):
+        for j in range(len(r)):
             alpha = fac / (h[j] * h[j])
             q = r[j] / h[j]
 
@@ -38,7 +38,7 @@ class CubicSpline(Kernel):
         return k
     
     @staticmethod
-    @njit(fastmath=True, cache=True)
+    @njit(fastmath=True)
     def gradient(x: np.array, r: np.array, h: np.array):
         """
         Calculates the gradient of the cubic spline at the given points.
@@ -54,7 +54,7 @@ class CubicSpline(Kernel):
         """
         k = np.zeros_like(r)
         fac = 10 / (7 * pi)
-        for j in prange(len(r)):
+        for j in range(len(r)):
             alpha = fac / (h[j] * h[j])
             q = r[j] / h[j]
 

@@ -1,4 +1,4 @@
-import sys, tempfile, subprocess, math
+import sys, tempfile, subprocess, math, shutil
 from typing import List, Tuple
 from time import perf_counter
 
@@ -15,6 +15,7 @@ from pyqtgraph.graphicsItems.GradientEditorItem import Gradients
 
 # Own
 from src.ColorBar import ColorBar
+from src.Common import ParticleType
 
 class Plot():
     def __init__(self, file: str, slowdown: float = 8.0, fps: int = 10, title: str ='SPH Plot', xmin: float = None, xmax: float = None, ymin: float = None, ymax: float = None, height: int = 700, width: int = 500, exportAllFrames: bool = False):
@@ -58,6 +59,8 @@ class Plot():
                 Should all frames be exported or only at framerate intervals. Takes significantly longer.
         """
 
+        self.check()
+
         self.input     = file
         self.slowdown  = slowdown
         self.video_fps = fps
@@ -72,13 +75,11 @@ class Plot():
 
         self.exportAllFrames = exportAllFrames
 
-        self.check()
-
     def check(self):
-        """ Checks if ffmpeg is in path. """
-        try:
-            subprocess.run('ffmpeg')
-        except:
+        """
+            Verifies that ffmpeg is in the path.
+        """
+        if shutil.which('ffmpeg') is None:
             raise Exception("ffmpeg is not defined, check you path. Without ffmpeg, plots cannot be created.")
 
     def save(self, file: str):
@@ -129,13 +130,18 @@ class Plot():
         """ Loads the required parameters from the file. """
         
         with h5py.File(self.input, 'r') as h5f:
-            self.x   = h5f['x'][:]
-            self.y   = h5f['y'][:]
-            self.p   = h5f['p'][:]
-            self.dts = h5f['dt_a'][:]
+            pA              = h5f['particleArray'][:]
+            self.x          = h5f['x'][:]
+            self.y          = h5f['y'][:]
+            self.p          = h5f['p'][:]
+            self.dts        = h5f['dt_a'][:]        # The actual time
+            self.settleTime = h5f['settleTime'][()]
 
         # Compute duration
-        self.duration = np.sum(self.dts)
+        self.fluid_ind  = pA['label'] == ParticleType.Fluid
+        self.border_ind = pA['label'] == ParticleType.Boundary
+        self.temp_ind   = pA['label'] == ParticleType.TempBoundary
+        self.duration   = np.sum(self.dts)
 
     def _export(self, frame: int):
         self.exporter = pg.exporters.ImageExporter(self.pw.plotItem)
@@ -156,18 +162,24 @@ class Plot():
         for frame in range(len(self.x)):
             if t >= targets[exp_frames]:
                 frames.append(frame)
-                t_series.append(t)
+                t_series.append(t - self.settleTime)
                 exp_frames += 1
             t += self.dts[frame]
 
         # Add the final frame
         frames.append(len(self.x) - 1)
-        t_series.append(self.duration)
+        t_series.append(self.duration - self.settleTime)
         
         return frames, t_series
 
     def _update_frame(self, frame: int, time: float) -> None:
-        self.pl.setData(x=self.x[frame], y=self.y[frame], symbolBrush=self.cm.map(self.p[frame] / 1000, 'qcolor'), symbolSize=self.sZ)
+        self.pl_f.setData(x=self.x[frame, self.fluid_ind], y=self.y[frame, self.fluid_ind], symbolBrush=self.cm.map(self.p[frame, self.fluid_ind] / 1000, 'qcolor'), symbolSize=self.sZ)
+        self.pl_b.setData(x=self.x[frame, self.border_ind], y=self.y[frame, self.border_ind], symbolBrush=pg.mkBrush('k'), symbolPen=None, symbolSize=self.sZ)
+
+        if time >= self.settleTime:
+            self.pl_t.clear()
+        else:
+            self.pl_t.setData(x=self.x[frame, self.temp_ind], y=self.y[frame, self.temp_ind], symbolBrush=pg.mkBrush('y'), symbolPen=None, symbolSize=self.sZ)
         self.txtItem.setText(f't = {time:f} [s]')
 
     def _init_plot(self):
@@ -205,27 +217,25 @@ class Plot():
         self.txtItem.translate(350.0 - xrange, 90.0)
 
         # make colormap
-        c_range = np.linspace(0, 1, num=10)
-        colors = [(0.0, 1.0, 1.0, 0.0)] # Not visible color, to hide particles with p=-1000
+        c_range = np.linspace(0, 1, num=10); colors = []
         for cc in c_range:
             colors.append([cc, 0.0, 1 - cc, 1.0]) # Blue to red color spectrum
         
-        stops = np.round(c_range * (np.max(self.p[0])) / 1000, 0)
-        stops = np.insert(stops, 0, -1e14 / 1000)
+        stops = np.round(c_range * np.max(self.p[0,self.fluid_ind]) / 1000, 0)
         self.cm = pg.ColorMap(stops, np.array(colors))
 
-        cbarMap = pg.ColorMap(stops[1:], np.array(colors)[1:])
-        
         # make colorbar, placing by hand
         # TODO: Place color bar automatically instead of manually.
-        cb = ColorBar(cmap=cbarMap, width=10, height=200, label='Pressure [kPa]')
+        cb = ColorBar(cmap=self.cm, width=10, height=200, label='Pressure [kPa]')
         self.pw.scene().addItem(cb)
         cb.translate(610.0, 90.0)
 
         # Initial points
         num = len(self.x[0])
         self.sZ = (40 * (2 / (num ** 0.5)))
-        self.pl = self.pw.plot(self.x[0], self.y[0], pen=None, symbol='o', symbolBrush=self.cm.map(self.p[0] / 1000, 'qcolor'), symbolPen=None, symbolSize=self.sZ)
+        self.pl_f = self.pw.plot(self.x[0, self.fluid_ind], self.y[0, self.fluid_ind], pen=None, symbol='o', symbolBrush=self.cm.map(self.p[0, self.fluid_ind] / 1000, 'qcolor'), symbolPen=None, symbolSize=self.sZ)
+        self.pl_b = self.pw.plot(self.x[0, self.border_ind], self.y[0, self.border_ind], pen=None, symbol='o', symbolBrush=pg.mkBrush('k'), symbolPen=None, symbolSize=self.sZ)
+        self.pl_t = self.pw.plot(self.x[0, self.temp_ind], self.y[0, self.temp_ind], pen=None, symbol='o', symbolBrush=pg.mkBrush('m'), symbolPen=None, symbolSize=self.sZ)
 
     def _export_mp4(self):
         """ Exports gathered frames to mp4 file using ffmpeg. """

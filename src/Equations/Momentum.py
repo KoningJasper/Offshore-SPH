@@ -1,7 +1,7 @@
 from numba import njit, prange
 from typing import List
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True)
 def Momentum(alpha, beta, p, comp) -> List[float]:
     """
         Monaghan Momentum equation
@@ -28,7 +28,7 @@ def Momentum(alpha, beta, p, comp) -> List[float]:
 
     a = [0.0, 0.0]
     J = len(comp)
-    for j in prange(J):
+    for j in range(J):
         # Compute acceleration due to pressure.
         othr = comp[j]['p'] / (comp[j]['rho'] * comp[j]['rho'])
 
