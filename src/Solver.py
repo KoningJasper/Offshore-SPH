@@ -196,7 +196,7 @@ class Solver:
         m, c, f = TimeStep.compute(self.num_particles, self.particleArray[self.indexes], gamma_c, gamma_f)
         
         # Floor at 5th decimal
-        m = round(math.floor(m / 0.00001) * 0.00001, 5)
+        # m = round(math.floor(m / 0.00001) * 0.00001, 5)
 
         # Store for later retrieval, making pretty plots or whatevs.
         self.dt_c.append(c); self.dt_f.append(f); self.dt_a.append(m)
@@ -354,7 +354,7 @@ class Solver:
                     self.settleTime = sum(self.dt_a)
                     
                     # Stop damping after reaching settling kinetic energy
-                    self.damping = 0.0
+                    self.damping = 1e-4
 
                     settled = True
                     println(f'{Fore.GREEN}Settling Complete.{Style.RESET_ALL}')

@@ -82,9 +82,10 @@ def _assignProps(i: int, particleArray: np.array, near_arr: np.array, h_i: np.ar
         pA = particleArray[global_i]
 
         # From self properties
-        calcProps[j]['p']   = pA['p']
-        calcProps[j]['m']   = pA['m']
-        calcProps[j]['rho'] = pA['rho']
+        calcProps[j]['label'] = pA['label']
+        calcProps[j]['p']     = pA['p']
+        calcProps[j]['m']     = pA['m']
+        calcProps[j]['rho']   = pA['rho']
 
         # Pre-calculated properties
         calcProps[j]['h'] = h_i[j] # average h, precalculated

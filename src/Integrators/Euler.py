@@ -1,11 +1,14 @@
 import numpy as np
-from numba import jitclass, prange
+from numba import jitclass, prange, boolean
 from src.Common import ParticleType
-from src.Integrators.Integrator import Integrator
 
-@jitclass([])
-class Euler(Integrator):
+@jitclass([
+    ('useXSPH', boolean)
+])
+class Euler():
     """ Stupidly simple Euler Integrator """
+    def __init__(self, useXSPH: bool):
+        self.useXSPH = useXSPH
 
     def isMultiStage(self) -> bool:
         return False
@@ -17,8 +20,12 @@ class Euler(Integrator):
     def correct(self, dt: float, pA: np.array, damping: float) -> np.array:
         # Outside of compute loop so prange can be used.
         for j in prange(len(pA)):
-            pA[j]['x'] = pA[j]['x'] + dt * pA[j]['vx'] + 0.5 * dt * dt * pA[j]['ax']
-            pA[j]['y'] = pA[j]['y'] + dt * pA[j]['vy'] + 0.5 * dt * dt * pA[j]['ay']
+            if self.useXSPH == True:
+                pA[j]['x'] = pA[j]['x'] + dt * pA[j]['xsphx'] + 0.5 * dt * dt * pA[j]['ax']
+                pA[j]['y'] = pA[j]['y'] + dt * pA[j]['xsphy'] + 0.5 * dt * dt * pA[j]['ay']
+            else:
+                pA[j]['x'] = pA[j]['x'] + dt * pA[j]['vx'] + 0.5 * dt * dt * pA[j]['ax']
+                pA[j]['y'] = pA[j]['y'] + dt * pA[j]['vy'] + 0.5 * dt * dt * pA[j]['ay']
 
             pA[j]['vx'] = pA[j]['vx'] + dt * pA[j]['ax']
             pA[j]['vy'] = pA[j]['vy'] + dt * pA[j]['ay']

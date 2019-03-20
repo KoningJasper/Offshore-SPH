@@ -137,7 +137,8 @@ class WCSPH(Method):
             self.gamma,
             self.B,
             self.rho0,
-            pA['rho']
+            pA['rho'],
+            pA['label']
         )
 
     def compute_acceleration(self, p: np.array, comp: np.array):

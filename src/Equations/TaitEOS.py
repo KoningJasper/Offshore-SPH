@@ -2,8 +2,8 @@ import numpy as np
 from math import sqrt
 from numba import njit, vectorize
 
-@vectorize('float64(float64, float64, float64, float64)', fastmath=True)
-def TaitEOS(gamma, B, rho0, rho):
+@vectorize('float64(float64, float64, float64, float64, int8)', fastmath=True)
+def TaitEOS(gamma, B, rho0, rho, label):
     """
         Calculates the pressure according to Tait EOS.
 
