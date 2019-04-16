@@ -4,25 +4,12 @@ from typing import List, Tuple
 from src.Common import ParticleType
 from src.Integrators.Integrator import Integrator
 
-spec = [
-    ('useXSPH', boolean),
-]
-@jitclass(spec)
+@jitclass([])
 class PEC():
-    def __init__(self, useXSPH: bool = True):
+    def __init__(self):
         """
             The predictor-corrector as described by Monaghan in his 1992 paper.
-
-            Parameters
-            ----------
-
-            useXSPH: bool
-                Should XSPH correction be used.
-
-            strict: bool
-                Should the density be always positive.
         """
-        self.useXSPH = useXSPH
         
     def isMultiStage(self) -> bool:
         return False
@@ -38,9 +25,8 @@ class PEC():
             pA[j]['vy0'] = pA[j]['vy']
             pA[j]['rho0'] = pA[j]['rho']
 
-            # TODO: XSPH Conditional
-            pA[j]['x'] = pA[j]['x0'] + 0.5 * dt * pA[j]['xsphx']
-            pA[j]['y'] = pA[j]['y0'] + 0.5 * dt * pA[j]['xsphy']
+            pA[j]['x'] = pA[j]['x0'] + 0.5 * dt * pA[j]['vx']
+            pA[j]['y'] = pA[j]['y0'] + 0.5 * dt * pA[j]['vy']
 
             pA[j]['vx']  = pA[j]['vx0'] + 0.5 * dt * pA[j]['ax']
             pA[j]['vy']  = pA[j]['vy0'] + 0.5 * dt * pA[j]['ay']
@@ -52,9 +38,8 @@ class PEC():
         J = len(pA)
         # Outside of compute loop so prange can be used.
         for j in prange(J):
-            # TODO: XSPH Conditional
-            pA[j]['x'] = pA[j]['x0'] + dt * pA[j]['xsphx']
-            pA[j]['y'] = pA[j]['y0'] + dt * pA[j]['xsphy']
+            pA[j]['x'] = pA[j]['x0'] + dt * pA[j]['vx']
+            pA[j]['y'] = pA[j]['y0'] + dt * pA[j]['vy']
 
 
             pA[j]['vx']  = pA[j]['vx0'] + dt * pA[j]['ax']

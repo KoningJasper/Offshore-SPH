@@ -1,5 +1,6 @@
 from numba import njit, prange
 from typing import List
+from src.Common import ParticleType
 
 @njit(fastmath=True)
 def Momentum(alpha, beta, p, comp) -> List[float]:
@@ -29,6 +30,9 @@ def Momentum(alpha, beta, p, comp) -> List[float]:
     a = [0.0, 0.0]
     J = len(comp)
     for j in range(J):
+        if comp[j]['label'] != ParticleType.Fluid:
+            continue
+
         # Compute acceleration due to pressure.
         othr = comp[j]['p'] / (comp[j]['rho'] * comp[j]['rho'])
 

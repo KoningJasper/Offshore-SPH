@@ -15,17 +15,17 @@ from src.Common import ParticleType, particle_dtype
 
 def create_particles(N: int, mass: float, obs: bool):
     r0     = 25 / N     # Distance between boundary particles.
-    rho_b  = 1000.      # Density of the boundary [kg/m^3]
-    mass_b = mass * 1.0 # Mass of the boundary [kg]
+    rho_b  = 0.      # Density of the boundary [kg/m^3]
+    mass_b = 0          # Mass of the boundary [kg]
 
     # Create some fluid particles
-    fluid = Helpers.rect(xmin=0, xmax=25, ymin=0, ymax=25, r0=r0, mass=mass, rho0=rho_b, pack=True)
+    fluid = Helpers.rect(xmin=0, xmax=25, ymin=0, ymax=25, r0=r0, mass=mass, rho0=1000.0, pack=True)
 
     # Maximum and minimum values of boundaries
     # Keep 1.5 spacing
-    x_min = - 2 * r0
+    x_min = - 1 * r0
     x_max = 150
-    y_min = - 2 * r0
+    y_min = - 1 * r0
     y_max = 30
     
     # Create the boundary
@@ -69,7 +69,7 @@ def main():
     # Create the solver
     kernel     = CubicSpline()
     method     = WCSPH(height=height, r0=r0, rho0=rho0, useXSPH=XSPH)
-    integrator = PEC(useXSPH=XSPH)
+    integrator = PEC()
     solver     = Solver(method, integrator, kernel, duration, quick=False, incrementalWriteout=False)
 
     # Add the particles

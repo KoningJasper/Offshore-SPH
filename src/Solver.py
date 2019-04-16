@@ -18,6 +18,7 @@ from src.Kernels.Kernel import Kernel
 from src.Integrators.Integrator import Integrator
 from src.Equations.TimeStep import TimeStep
 from src.Equations.KineticEnergy import KineticEnergy
+from src.Equations import BoundaryForce
 from src.Tools.NNLinkedList import NNLinkedList
 from src.Tools.SolverTools import computeProps, findActive
 
@@ -36,6 +37,7 @@ class Solver:
     particleArray: np.array = None
     num_particles: int = 0  # Number of active particles
     indexes: np.array       # Indexes of active particles
+    f_indexes: np.array     # Indexes of active fluid-particles
 
     # Timing information
     timing_data: Dict[str, float] = {}
@@ -156,25 +158,26 @@ class Solver:
 
         # Find the active ones.
         self.num_particles, self.indexes = findActive(self.num_particles, self.particleArray)
-        self.fluid_count = np.sum(self.particleArray[self.indexes]['label'] == ParticleType.Fluid)
+        self.f_indexes = (self.particleArray['label'] == ParticleType.Fluid) & (self.particleArray['deleted'] == False)
+        self.fluid_count = np.sum(self.f_indexes)
         println(f'{Fore.YELLOW}{self.num_particles}{Style.RESET_ALL} total particles, {Fore.YELLOW}{self.fluid_count}{Style.RESET_ALL} fluid particles.')
 
         # Calc h
-        h = Solver.computeH(1.3, self.num_particles, self.particleArray[self.indexes]['m'], self.particleArray[self.indexes]['rho'])
-        self.particleArray['h'][self.indexes] = h
+        h = Solver.computeH(1.3, self.fluid_count, self.particleArray[self.f_indexes]['m'], self.particleArray[self.f_indexes]['rho'])
+        self.particleArray['h'][self.f_indexes] = h
 
         # Initialize particles
-        self.particleArray[self.indexes] = self.method.initialize(self.particleArray[self.indexes])
+        self.particleArray[self.f_indexes] = self.method.initialize(self.particleArray[self.f_indexes])
 
         # Compute some initial properties
-        self.particleArray['p'][self.indexes] = self.method.compute_pressure(self.particleArray[self.indexes])
-        self.particleArray['c'][self.indexes] = self.method.compute_speed_of_sound(self.particleArray[self.indexes])
+        self.particleArray['p'][self.f_indexes] = self.method.compute_pressure(self.particleArray[self.f_indexes])
+        self.particleArray['c'][self.f_indexes] = self.method.compute_speed_of_sound(self.particleArray[self.f_indexes])
 
         # Set 0-th time-step
         self.data.append(self.particleArray[:])
 
         # Compute initial kinetic energy
-        self.kE = KineticEnergy(self.num_particles, self.particleArray[self.indexes]) * self.kEF
+        self.kE = KineticEnergy(self.fluid_count, self.particleArray[self.f_indexes]) * self.kEF
 
         # Create export lists, and store 0-th timestep.
         for key in self.exportProperties:
@@ -193,7 +196,7 @@ class Solver:
             # Determined by pure guess work.
             gamma_f = 0.6
 
-        m, c, f = TimeStep.compute(self.num_particles, self.particleArray[self.indexes], gamma_c, gamma_f)
+        m, c, f = TimeStep.compute(self.fluid_count, self.particleArray[self.f_indexes], gamma_c, gamma_f)
         
         # Floor at 5th decimal
         # m = round(math.floor(m / 0.00001) * 0.00001, 5)
@@ -225,6 +228,9 @@ class Solver:
         c = methodClass.compute_speed_of_sound(pA)
 
         for i in prange(len(pA)):
+            if pA[i]['label'] != ParticleType.Fluid:
+                continue;
+
             # Assign parameters
             pA[i]['p'] = p[i]
             pA[i]['c'] = c[i]
@@ -244,13 +250,18 @@ class Solver:
             # Continuity
             pA[i]['drho'] = methodClass.compute_density_change(pA[i], calcProps)
 
-            if pA[i]['label'] == ParticleType.Fluid:
-                # Momentum
-                [pA[i]['ax'], pA[i]['ay']] = methodClass.compute_acceleration(pA[i], calcProps)
+            # Momentum
+            [a_x, a_y] = methodClass.compute_acceleration(pA[i], calcProps)
+            
+            # Compute boundary forces
+            [b_x, b_y] = BoundaryForce.BoundaryForce(methodClass.r0, methodClass.D, methodClass.p1, methodClass.p2, pA[i], calcProps)
 
-                # XSPH
-                [pA[i]['vx'], pA[i]['vy'], pA[i]['xsphx'], pA[i]['xsphy']] = methodClass.compute_velocity(pA[i], calcProps)
-            # end fluid
+            # Total acceleration
+            pA[i]['ax'] = a_x + b_x
+            pA[i]['ay'] = a_y + b_y
+
+            # XSPH
+            [pA[i]['vx'], pA[i]['vy']] = methodClass.compute_velocity(pA[i], calcProps)
 
         return pA
 
@@ -264,8 +275,8 @@ class Solver:
         self.timing_data['neighbour_hood'] += perf_counter() - start
 
         # Set h
-        h = Solver.computeH(1.3, self.num_particles, self.particleArray[self.indexes]['m'], self.particleArray[self.indexes]['rho'])
-        self.particleArray['h'][self.indexes] = h
+        h = Solver.computeH(1.3, self.fluid_count, self.particleArray[self.f_indexes]['m'], self.particleArray[self.f_indexes]['rho'])
+        self.particleArray['h'][self.f_indexes] = h
 
         # Re-set accelerations
         self.particleArray['ax'][self.indexes]   = 0.0
@@ -307,7 +318,7 @@ class Solver:
             
             # Predict
             start = perf_counter()
-            self.particleArray[self.indexes] = self.integrator.predict(self.dt, self.particleArray[self.indexes], self.damping)
+            self.particleArray[self.f_indexes] = self.integrator.predict(self.dt, self.particleArray[self.f_indexes], self.damping)
             self.timing_data['integrate_prediction'] += perf_counter() - start
 
             # Compute the accelerations
@@ -315,7 +326,7 @@ class Solver:
 
             # Correct
             start = perf_counter()
-            self.particleArray[self.indexes] = self.integrator.correct(self.dt, self.particleArray[self.indexes], self.damping)
+            self.particleArray[self.f_indexes] = self.integrator.correct(self.dt, self.particleArray[self.f_indexes], self.damping)
             self.timing_data['integrate_correction'] += perf_counter() - start
 
             # Store to data
@@ -331,7 +342,7 @@ class Solver:
 
             if settled == False and t_step > 1:
                 # Compute kinetic energy
-                ke = KineticEnergy(self.num_particles, self.particleArray[self.indexes])
+                ke = KineticEnergy(self.fluid_count, self.particleArray[self.f_indexes])
                 if ke < self.kE or t_step > self.maxSettle:
                     if t_step > self.maxSettle:
                         println(f'{Fore.YELLOW}WARNING!{Style.RESET_ALL} Maximum settle steps reached, check configuration, maybe increase spacing between wall and particles.')
@@ -345,7 +356,11 @@ class Solver:
                         if p['label'] == ParticleType.TempBoundary:
                             inds.append(i)
                             p['deleted'] = True
+
+                    # Get the new indexes
                     self.num_particles, self.indexes = findActive(self.num_particles, self.particleArray)
+                    self.f_indexes = (self.particleArray['label'] == ParticleType.Fluid) & (self.particleArray['deleted'] == False)
+                    self.fluid_count = np.sum(self.f_indexes)
 
                     # Set the pressure to - a lot for deleted particles.
                     self.particleArray['p'][inds] = -1e15

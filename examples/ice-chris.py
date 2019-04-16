@@ -32,16 +32,13 @@ def create_particles(Nx: int, rho0: float, x_end: float, y_end: float):
     x_max = x_end + 2 * r0
     y_min = - 2 * r0
     y_max = y_end + 2 * r0 + 2 * y_end
-    mass_b = mass * 1.0 # Mass of the boundary [kg]
+    mass_b = 0. # Mass of the boundary [kg]
+    rho_b = 0.
     
     # Create the boundary
-    bottom = Helpers.rect(xmin=x_min, xmax=x_max, ymin=y_min, ymax=y_min, r0=r0, mass=mass_b, rho0=rho0, label=ParticleType.Boundary)
-    left   = Helpers.rect(xmin=x_min, xmax=x_min, ymin=y_min, ymax=y_max, r0=r0, mass=mass_b, rho0=rho0, label=ParticleType.Boundary)
-    right  = Helpers.rect(xmin=x_max, xmax=x_max, ymin=y_min, ymax=y_max, r0=r0, mass=mass_b, rho0=rho0, label=ParticleType.Boundary)
-
-    # Ice and plate.
-    #p = plate(r0, x_end - 20, y_end + 10, mass_b, rho0)
-    #i = ice(r0, y_max + r0, mass_b, rho0, 10.0)
+    bottom = Helpers.rect(xmin=x_min, xmax=x_max, ymin=y_min, ymax=y_min, r0=r0, mass=mass_b, rho0=rho_b, label=ParticleType.Boundary)
+    left   = Helpers.rect(xmin=x_min, xmax=x_min, ymin=y_min, ymax=y_max, r0=r0, mass=mass_b, rho0=rho_b, label=ParticleType.Boundary)
+    right  = Helpers.rect(xmin=x_max, xmax=x_max, ymin=y_min, ymax=y_max, r0=r0, mass=mass_b, rho0=rho_b, label=ParticleType.Boundary)
 
     return r0, np.concatenate((fluid, bottom, left, right))
 
@@ -93,8 +90,8 @@ def main():
     # Create the solver
     kernel     = CubicSpline()
     method     = WCSPH(height=height, rho0=rho0, r0=r0, useXSPH=XSPH)
-    integrator = PEC(useXSPH=XSPH, strict=False)
-    solver     = Solver(method, integrator, kernel, duration, quick=False, incrementalWriteout=False, maxSettle=25_000, kE=0.0)
+    integrator = PEC()
+    solver     = Solver(method, integrator, kernel, duration, quick=False, incrementalWriteout=False, maxSettle=2_000, kE=0.0)
 
     # Add the particles
     solver.addParticles(pA)

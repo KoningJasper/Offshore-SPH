@@ -158,11 +158,8 @@ class WCSPH(Method):
             comp
         )
 
-        # Compute boundary forces
-        [b_x, b_y] = BoundaryForce.BoundaryForce(self.r0, self.D, self.p1, self.p2, p, comp)
-
         # Gravity
-        return [a_x + b_x, a_y + b_y - 9.81]
+        return [a_x, a_y - 9.81]
 
     def compute_velocity(self, p: np.array, comp: np.array):
         """
@@ -178,10 +175,10 @@ class WCSPH(Method):
             [xsph_x, xsph_y] = XSPH.XSPH(self.epsilon, p, comp)
 
             # Velocity stays the same, xsph correction is changed.
-            return [p['vx'], p['vy'], p['vx'] + xsph_x, p['vy'] + xsph_y]
+            return [p['vx'] + xsph_x, p['vy'] + xsph_y]
         else:
             # Velocity stays the same
-            return [p['vx'], p['vy'], p['vx'], p['vy'],]
+            return [p['vx'], p['vy']]
 
     def compute_density_change(self, p: np.array, comp: np.array):
         """
