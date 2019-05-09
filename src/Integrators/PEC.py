@@ -54,8 +54,8 @@ class PEC():
             pA[j]['rho0'] = pA[j]['rho']
             pA[j]['rho']  = pA[j]['rho'] + 0.5 * dt * pA[j]['drho']
 
-            if self.strict and pA[j]['rho'] < 1000.0:
-                pA[j]['rho'] = 1000.0
+            if self.strict and pA[j]['rho'] < 0.0:
+                pA[j]['rho'] = 0.0
         return pA
 
     def correct(self, dt: float, pA: np.array, damping: float) -> np.array:
@@ -84,6 +84,6 @@ class PEC():
             pA[j]['rho'] = 2 * mid_rho - pA[j]['rho0']
 
             # Enforce density
-            if self.strict and pA[j]['rho'] < 1000.0:
-                pA[j]['rho'] = 1000.0
+            if self.strict and pA[j]['rho'] < 0.0:
+                pA[j]['rho'] = 0.0
         return pA

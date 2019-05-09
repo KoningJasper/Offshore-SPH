@@ -82,6 +82,7 @@ def _assignProps(i: int, particleArray: np.array, near_arr: np.array, h_i: np.ar
         pA = particleArray[global_i]
 
         # From self properties
+        calcProps[j]['label'] = pA['label']
         calcProps[j]['p']   = pA['p']
         calcProps[j]['m']   = pA['m']
         #calcProps[near_i]['c']   = self.method.compute_speed_of_sound(pA)

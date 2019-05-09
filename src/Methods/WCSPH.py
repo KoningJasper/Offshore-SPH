@@ -24,6 +24,7 @@ spec = [
     ('gamma', float64),
     ('co', float64),
     ('B', float64),
+    ('Pb', float64),
 
     # Momentum
     ('alpha', float64),
@@ -31,7 +32,7 @@ spec = [
 ]
 @jitclass(spec)
 class WCSPH(Method):
-    def __init__(self, height: float, r0: float, rho0: float, useXSPH: bool):
+    def __init__(self, height: float, r0: float, rho0: float, useXSPH: bool, Pb: float):
         """
             The WCSPH method as described by Monaghan in the 1992 free-flow paper.
 
@@ -45,6 +46,8 @@ class WCSPH(Method):
                 Initial particle/fluid density
             useXSPH: bool
                 Should XSPH correction be used. XSPH modifies the velocity of the particles to be an averaged property.
+            Pb: float
+                Background pressure, normally 101325 Pa
 
             Notes
             -----
@@ -61,6 +64,7 @@ class WCSPH(Method):
         self.gamma = 7.0
         self.co    = TaitEOS.TaitEOS_co(self.height)
         self.B     = TaitEOS.TaitEOS_B(self.co, self.rho0, self.gamma)
+        self.Pb    = Pb
 
         self.alpha = 0.01
         self.beta  = 0.0
@@ -137,8 +141,9 @@ class WCSPH(Method):
             self.gamma,
             self.B,
             self.rho0,
-            pA['rho']
-        )
+            pA['rho'],
+            pA['label']
+        ) + self.Pb
 
     def compute_acceleration(self, p: np.array, comp: np.array):
         """
@@ -157,11 +162,8 @@ class WCSPH(Method):
             comp
         )
 
-        # Compute boundary forces
-        [b_x, b_y] = BoundaryForce.BoundaryForce(self.r0, self.D, self.p1, self.p2, p, comp)
-
         # Gravity
-        return [a_x + b_x, a_y + b_y - 9.81]
+        return [a_x , a_y - 9.81]
 
     def compute_velocity(self, p: np.array, comp: np.array):
         """

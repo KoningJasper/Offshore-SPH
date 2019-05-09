@@ -1,9 +1,10 @@
 import numpy as np
 from math import sqrt
 from numba import njit, vectorize
+from src.Common import ParticleType
 
-@vectorize('float64(float64, float64, float64, float64)', fastmath=True)
-def TaitEOS(gamma, B, rho0, rho):
+@vectorize('float64(float64, float64, float64, float64, int8)', fastmath=True)
+def TaitEOS(gamma, B, rho0, rho, label):
     """
         Calculates the pressure according to Tait EOS.
 
@@ -23,8 +24,11 @@ def TaitEOS(gamma, B, rho0, rho):
         Array of pressures
 
     """
-    ratio = (rho / rho0) ** gamma
-    return (ratio - 1.0) * B
+    if label != ParticleType.Fluid:
+        return 0.
+    else:
+        ratio = (rho / rho0) ** gamma
+        return (ratio - 1.0) * B
 
 @njit(fastmath=True)
 def TaitEOS_B(co, rho0, gamma):

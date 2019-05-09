@@ -103,8 +103,8 @@ class Plot():
         self._init_plot()
 
         # Create a temp-dir for storage of files
-        self.tempdir = tempfile.TemporaryDirectory()
-        print(f'Exporting frames to directory: {self.tempdir.name}')
+        self.tempdir = tempfile.mkdtemp()
+        print(f'Exporting frames to directory: {self.tempdir}')
 
         frames, t_series = self._calcFrames()
         for i, frame in tqdm(enumerate(frames), desc='Exporting frames', total=(len(frames) - 1), unit='frame'):
@@ -141,6 +141,7 @@ class Plot():
         self.fluid_ind  = pA['label'] == ParticleType.Fluid
         self.border_ind = pA['label'] == ParticleType.Boundary
         self.temp_ind   = pA['label'] == ParticleType.TempBoundary
+        self.coupl_ind  = pA['label'] == ParticleType.Coupled
         self.duration   = np.sum(self.dts)
 
     def _export(self, frame: int):
@@ -149,7 +150,7 @@ class Plot():
         self.exporter.params.param('height').setValue(self.width, blockSignal=self.exporter.heightChanged)
 
         frame_str = "{:06}".format(frame)
-        self.exporter.export(f'{self.tempdir.name}/export_{frame_str}.png')
+        self.exporter.export(f'{self.tempdir}/export_{frame_str}.png')
 
     def _calcFrames(self) -> Tuple[List[int], List[int]]:
         # Compute the target times, with avg. frame-rate.
@@ -175,6 +176,7 @@ class Plot():
     def _update_frame(self, frame: int, time: float) -> None:
         self.pl_f.setData(x=self.x[frame, self.fluid_ind], y=self.y[frame, self.fluid_ind], symbolBrush=self.cm.map(self.p[frame, self.fluid_ind] / 1000, 'qcolor'), symbolSize=self.sZ)
         self.pl_b.setData(x=self.x[frame, self.border_ind], y=self.y[frame, self.border_ind], symbolBrush=pg.mkBrush('k'), symbolPen=None, symbolSize=self.sZ)
+        self.pl_c.setData(x=self.x[frame, self.coupl_ind], y=self.y[frame, self.coupl_ind], symbolBrush=pg.mkBrush('m'), symbolPen=None, symbolSize=self.sZ)
 
         if time >= self.settleTime:
             self.pl_t.clear()
@@ -235,12 +237,13 @@ class Plot():
         self.sZ = (40 * (2 / (num ** 0.5)))
         self.pl_f = self.pw.plot(self.x[0, self.fluid_ind], self.y[0, self.fluid_ind], pen=None, symbol='o', symbolBrush=self.cm.map(self.p[0, self.fluid_ind] / 1000, 'qcolor'), symbolPen=None, symbolSize=self.sZ)
         self.pl_b = self.pw.plot(self.x[0, self.border_ind], self.y[0, self.border_ind], pen=None, symbol='o', symbolBrush=pg.mkBrush('k'), symbolPen=None, symbolSize=self.sZ)
-        self.pl_t = self.pw.plot(self.x[0, self.temp_ind], self.y[0, self.temp_ind], pen=None, symbol='o', symbolBrush=pg.mkBrush('m'), symbolPen=None, symbolSize=self.sZ)
+        self.pl_t = self.pw.plot(self.x[0, self.temp_ind], self.y[0, self.temp_ind], pen=None, symbol='o', symbolBrush=pg.mkBrush('y'), symbolPen=None, symbolSize=self.sZ)
+        self.pl_c = self.pw.plot(self.x[0, self.coupl_ind], self.y[0, self.coupl_ind], pen=None, symbol='o', symbolBrush=pg.mkBrush('m'), symbolPen=None, symbolSize=self.sZ)
 
     def _export_mp4(self):
         """ Exports gathered frames to mp4 file using ffmpeg. """
-        subprocess.run(f'ffmpeg -hide_banner -loglevel panic -y -framerate {self.video_fps} -i "{self.tempdir.name}\\export_%06d.png" -s:v {self.height}x{self.width} -c:v libx264 \
--profile:v high -crf 20 -pix_fmt yuv420p {self.output}"')
+        subprocess.run(f'ffmpeg -hide_banner -loglevel panic -y -framerate {self.video_fps} -i "{self.tempdir}/export_%06d.png" -s:v {self.height}x{self.width} -c:v libx264 \
+-profile:v high -crf 20 -pix_fmt yuv420p "{self.output}"', shell=True)
 
         # Cleanup export dir
-        self.tempdir.cleanup()
+        shutil.rmtree(self.tempdir)

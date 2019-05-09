@@ -8,7 +8,8 @@ from numba import jit, njit
 class ParticleType(enum.IntEnum):
     Fluid = 0,
     Boundary = 1,
-    TempBoundary = 2
+    TempBoundary = 2,
+    Coupled = 3
 
 def get_label_code(label: str):
     if label == 'fluid':
@@ -17,6 +18,8 @@ def get_label_code(label: str):
         return ParticleType.Boundary
     elif label == 'temp-boundary':
         return ParticleType.TempBoundary
+    elif label == 'coupled':
+        return ParticleType.Coupled
     else:
         raise Exception('Argument out of range')
 
