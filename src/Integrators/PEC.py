@@ -40,7 +40,7 @@ class PEC():
             pA[j]['vy0'] = pA[j]['vy']
 
             # Compute mid-point
-            if self.useXSPH == True:
+            if (self.useXSPH == True) and (pA[j]['label'] == ParticleType.Fluid):
                 pA[j]['x'] = pA[j]['x'] + 0.5 * dt * pA[j]['xsphx']
                 pA[j]['y'] = pA[j]['y'] + 0.5 * dt * pA[j]['xsphy']
             else:
@@ -63,7 +63,7 @@ class PEC():
         # Outside of compute loop so prange can be used.
         for j in prange(J):
             # Correct mid-point
-            if self.useXSPH == True:
+            if (self.useXSPH == True) and (pA[j]['label'] == ParticleType.Fluid):
                 mid_x = pA[j]['x0'] + 0.5 * dt * pA[j]['xsphx']
                 mid_y = pA[j]['y0'] + 0.5 * dt * pA[j]['xsphy']
             else:

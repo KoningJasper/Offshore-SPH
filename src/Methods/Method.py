@@ -9,6 +9,10 @@ class Method():
         Will include all possible variables to the underlying functions so they can decide what to use.
     """
     @abc.abstractmethod
+    def density():
+        raise Exception('No implemented!')
+        
+    @abc.abstractmethod
     def initialize(self, pA: np.array) -> np.array:
         raise Exception('No implemented!')
 

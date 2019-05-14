@@ -38,9 +38,7 @@ class NNLinkedList:
         self._init(pA)
         self._bin(pA)
 
-    def near(self, i: int, pA: np.array):
-        x = pA[i]['x']; y = pA[i]['y']; h = pA[i]['h']
-
+    def nearPos(self, x: float, y: float, h: float, pA: np.array):
         # Find unflattened id of particle
         _cid_x, _cid_y = self._find_cell_id_raw(x - self.xmin, y - self.ymin, self.cell_size)
         
@@ -81,6 +79,10 @@ class NNLinkedList:
 
         return np.array(h_i, dtype=np.float64), np.array(q_i, dtype=np.float64), np.array(r_i, dtype=np.float64), np.array(nbrs, dtype=np.uint64)
 
+    def near(self, i: int, pA: np.array):
+        x = pA[i]['x']; y = pA[i]['y']; h = pA[i]['h']
+        return self.nearPos(x, y, h, pA)
+        
     def _init(self, pA: np.array):
         """ Initialize the arrays. """
         # Find mins and maxes

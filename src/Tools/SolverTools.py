@@ -1,7 +1,9 @@
 import numpy as np
 from typing import List, Tuple
-from numba import njit, jit
-from src.Common import computed_dtype
+from numba import njit, jit, prange
+from src.Common import computed_dtype, ParticleType
+from src.Equations.SummationDensity import SummationDensity
+from src.Equations.BoundaryForce import BoundaryForce
 
 @njit(fastmath=True)
 def computeProps(i: int, pA: np.array, near_arr: List[int], h_i, q_i, dist, evFunc, gradFunc):
@@ -100,3 +102,74 @@ def _assignProps(i: int, particleArray: np.array, near_arr: np.array, h_i: np.ar
         calcProps[j]['vy'] = particleArray[i]['vy'] - pA['vy']
     # END_LOOP
     return calcProps
+
+@njit(fastmath=True)
+def computeH(sigma: float, J: int, m: np.array, rho: np.array):
+    """ Compute (dynamic) h size, based on Monaghan 2005. """
+    d = 2 # 2 Dimensions (x, y)
+    f = 1 / d
+    h = np.zeros_like(m)
+    
+    # Outside of compute loop so prange can be used.
+    for j in range(J):
+        if rho[j] > 1e-12:
+            h[j] = sigma * (m[j] / rho[j]) ** f
+    
+    return h
+
+@njit(fastmath=True)
+def _loop(pA, evFunc, gradFunc, methodClass, nn):
+    p = methodClass.compute_pressure(pA)
+    c = methodClass.compute_speed_of_sound(pA)
+
+    for i in prange(len(pA)):
+        pA[i]['p'] = p[i]
+        pA[i]['c'] = c[i]
+
+    if (methodClass.useSummationDensity == True):
+        # Extra summation loop
+        for i in prange(len(pA)):
+            if pA[i]['label'] != ParticleType.Fluid:
+                continue
+
+            # Find near neighbours and their h and q
+            h_i, q_i, dist, near_arr = nn.near(i, pA)
+            w = evFunc(dist, h_i)
+
+            # Compute and set density
+            pA[i]['rho'] = SummationDensity(pA[near_arr]['label'], pA[near_arr]['m'], w)
+
+    # Regular loop
+    for i in range(len(pA)):
+        if pA[i]['label'] != ParticleType.Fluid:
+            continue
+
+        # Find near neighbours and their h and q
+        h_i, q_i, dist, near_arr = nn.near(i, pA)
+
+        # Skip if got no neighbours, early exit.
+        # Keep same properties, no acceleration.
+        if len(near_arr) == 0:
+            continue
+
+        # Create computed properties
+        # Fill the props
+        calcProps = computeProps(i, pA, near_arr, h_i, q_i, dist, evFunc, gradFunc)
+
+        # Continuity
+        pA[i]['drho'] = methodClass.compute_density_change(pA[i], calcProps)
+
+        # Momentum
+        [a_x, a_y] = methodClass.compute_acceleration(pA[i], calcProps)
+        
+        # Compute boundary forces
+        [b_x, b_y] = BoundaryForce(methodClass.r0, methodClass.D, methodClass.p1, methodClass.p2, pA[i], calcProps)
+
+        # Total acceleration
+        pA[i]['ax'] = a_x + b_x
+        pA[i]['ay'] = a_y + b_y
+
+        # XSPH
+        [pA[i]['vx'], pA[i]['vy'], pA[i]['xsphx'], pA[i]['xsphy']] = methodClass.compute_velocity(pA[i], calcProps)
+
+    return pA

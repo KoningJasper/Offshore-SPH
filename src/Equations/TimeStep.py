@@ -1,12 +1,14 @@
 import numpy as np
 from math import sqrt
-from numba import njit, prange
+from numba import njit, prange, jitclass
 from src.Common import ParticleType
 from typing import Tuple
 
+@jitclass([])
 class TimeStep:
-    @staticmethod
-    def compute(J: int, pA: np.array, gamma_c: float = 0.25, gamma_f: float = 0.25) -> Tuple[float, float, float]:
+    def __init__(self):
+        pass
+    def compute(self, J: int, pA: np.array, gamma_c: float = 0.25, gamma_f: float = 0.25) -> Tuple[float, float, float]:
         """
             Computes the minimum time-step
 
@@ -35,31 +37,25 @@ class TimeStep:
             Time-step based on force condition
         """
 
-        min_h, max_c, max_a2 = TimeStep.computeVars(J, pA)
+        min_h, max_c, max_a2 = self.computeVars(J, pA)
 
-        c = TimeStep.courant(gamma_c, min_h, max_c)
-        f = TimeStep.force(gamma_f, min_h, max_a2)
+        c = self.courant(gamma_c, min_h, max_c)
+        f = self.force(gamma_f, min_h, max_a2)
 
         return min(c, f), c, f
 
-    @staticmethod
-    @njit('float64(float64, float64, float64)', fastmath=True)
-    def courant(cfl, h_min, c_max) -> float:
+    def courant(self, cfl, h_min, c_max) -> float:
         """ Timestep due to courant condition. """
         return cfl * h_min / c_max
 
-    @staticmethod
-    @njit('float64(float64, float64, float64)', fastmath=True)
-    def force(cfl, min_h, max_a) -> float:
+    def force(self, cfl, min_h, max_a) -> float:
         """ Time-step due to force. """
         if max_a < 1e-12:
             return 1e10
         else:
             return cfl * sqrt(min_h / max_a)
 
-    @staticmethod
-    @njit(fastmath=True)
-    def computeVars(J: int, pA: np.array):
+    def computeVars(self, J: int, pA: np.array):
         """
             Computes the minimum h, maximum speed of sound, and maximum acceleration for a given particle array.
 

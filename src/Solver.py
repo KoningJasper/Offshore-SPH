@@ -19,14 +19,11 @@ from src.Integrators.Integrator import Integrator
 from src.Equations.TimeStep import TimeStep
 from src.Equations.KineticEnergy import KineticEnergy
 from src.Equations.BoundaryForce import BoundaryForce
+from src.Equations.SummationDensity import SummationDensity
 from src.Tools.NNLinkedList import NNLinkedList
-from src.Tools.SolverTools import computeProps, findActive
+from src.Tools.SolverTools import computeProps, findActive, computeH, _loop
 
 class Solver:
-    """
-        Solver interface.
-    """
-
     method: Method
     integrator: Integrator
     kernel: Kernel
@@ -116,7 +113,8 @@ class Solver:
         self.maxSettle = maxSettle
         self.timeStep  = timeStep
         self.h         = h
-
+        self.ts_error  = 0
+        
         # Coupling function
         self.coupling = coupling
 
@@ -178,7 +176,7 @@ class Solver:
 
         # Calc h
         if self.h == None: 
-            h = Solver.computeH(1.3, self.fluid_count, self.particleArray[self.f_indexes]['m'], self.particleArray[self.f_indexes]['rho'])
+            h = computeH(1.3, self.fluid_count, self.particleArray[self.f_indexes]['m'], self.particleArray[self.f_indexes]['rho'])
         else:
             h = np.ones_like(self.particleArray['h'][self.f_indexes]) * self.h
         self.particleArray['h'][self.f_indexes] = h
@@ -208,13 +206,15 @@ class Solver:
 
         # CFL & Force coeffs
         gamma_c = 0.25; gamma_f = 0.25
-        
-        m, c, f = TimeStep.compute(self.fluid_count, self.particleArray[self.f_indexes], gamma_c, gamma_f)
+
+        m, c, f = TimeStep().compute(self.fluid_count, self.particleArray[self.f_indexes], gamma_c, gamma_f)
 
         # Check the time-step.
         if (m < 1e-6):
-            println(f'{Fore.RED}Time-step too small!!{Style.RESET_ALL}')
-            # m = 1e-6
+            # Only show warning is non sequential.
+            # if (len(self.dt_a) != self.ts_error + 1):
+                # println(f'{Fore.YELLOW}WARNING! {Style.RESET_ALL}Time-step has become very small; might indicate an error.')
+            self.ts_error = len(self.dt_a)
 
         # Store for later retrieval, making pretty plots or whatevs.
         self.dt_c.append(c); self.dt_f.append(f); self.dt_a.append(m)
@@ -222,64 +222,7 @@ class Solver:
         self.timing_data['time_step'] += perf_counter() - start
         return m
 
-    @staticmethod
-    @njit('float64[:](float64, int64, float64[:], float64[:])', fastmath=True)
-    def computeH(sigma: float, J: int, m: np.array, rho: np.array):
-        """ Compute (dynamic) h size, based on Monaghan 2005. """
-        d = 2 # 2 Dimensions (x, y)
-        f = 1 / d
-        h = np.zeros_like(m)
-        
-        # Outside of compute loop so prange can be used.
-        for j in prange(J):
-            if rho[j] > 1e-12:
-                h[j] = sigma * (m[j] / rho[j]) ** f
-        
-        return h
 
-    @staticmethod
-    @njit(fastmath=True)
-    def _loop(pA, evFunc, gradFunc, methodClass, nn):
-        p = methodClass.compute_pressure(pA)
-        c = methodClass.compute_speed_of_sound(pA)
-
-        for i in prange(len(pA)):
-            if pA[i]['label'] != ParticleType.Fluid:
-                continue
-
-            # Assign parameters
-            pA[i]['p'] = p[i]
-            pA[i]['c'] = c[i]
-
-            # Find near neighbours and their h and q
-            h_i, q_i, dist, near_arr = nn.near(i, pA)
-
-            # Skip if got no neighbours, early exit.
-            # Keep same properties, no acceleration.
-            if len(near_arr) == 0:
-                continue
-
-            # Create computed properties
-            # Fill the props
-            calcProps = computeProps(i, pA, near_arr, h_i, q_i, dist, evFunc, gradFunc)
-
-            # Continuity
-            pA[i]['drho'] = methodClass.compute_density_change(pA[i], calcProps)
-
-            # Momentum
-            [a_x, a_y] = methodClass.compute_acceleration(pA[i], calcProps)
-            
-            # Compute boundary forces
-            [b_x, b_y] = BoundaryForce(methodClass.r0, methodClass.D, methodClass.p1, methodClass.p2, pA[i], calcProps)
-
-            # Total acceleration
-            pA[i]['ax'] = a_x + b_x
-            pA[i]['ay'] = a_y + b_y
-
-            # XSPH
-            [pA[i]['vx'], pA[i]['vy'], pA[i]['xsphx'], pA[i]['xsphy']] = methodClass.compute_velocity(pA[i], calcProps)
-
-        return pA
 
     def _compute(self):
         """ Compute the accelerations, velocities, etc. """
@@ -292,7 +235,7 @@ class Solver:
 
         # Set h
         if self.h == None:
-            h = Solver.computeH(1.3, self.fluid_count, self.particleArray[self.f_indexes]['m'], self.particleArray[self.f_indexes]['rho'])
+            h = computeH(1.3, self.fluid_count, self.particleArray[self.f_indexes]['m'], self.particleArray[self.f_indexes]['rho'])
         else:
             h = np.ones_like(self.particleArray['h'][self.f_indexes]) * self.h
         self.particleArray['h'][self.f_indexes] = h
@@ -303,9 +246,83 @@ class Solver:
         self.particleArray['drho'][self.f_indexes] = 0.0
 
         # Loop
-        self.particleArray[self.indexes] = Solver._loop(self.particleArray[self.indexes], self.kernel.evaluate, self.kernel.gradient, self.method, self.nn)
+        self.particleArray[self.indexes] = _loop(self.particleArray[self.indexes], self.kernel.evaluate, self.kernel.gradient, self.method, self.nn)
 
         self.timing_data['compute'] += perf_counter() - start
+
+    def run2(self):
+        # Execute
+        if self.timeStep == None:
+            self.timeStep = -1
+        data = Solver.executeRun2(self.particleArray, self.duration, self.timeStep, self.fluid_count, self.indexes, self.f_indexes, self.integrator, self.nn, self.kernel.evaluate, self.kernel.gradient, self.method)
+
+        # Set the export
+        self.export['x'] = data[:, 0, :]
+        self.export['y'] = data[:, 0, :]
+        self.export['p'] = data[:, 0, :]
+
+    @staticmethod
+    @njit(fastmath=True)
+    def executeRun2(pA: np.array, duration: float, timeStep: float, fluid_count: int, indexes: np.array, f_indexes: np.array, integrator, nn, evFunc, gradFunc, methodClass):
+        t = 0.0; step = 0
+        size = 10_000; data = np.zeros((len(pA), 3, size)); ts = np.zeros((3, size))
+        damping = 0.0; gamma_c = 0.25; gamma_f = 0.25
+        while t < duration:
+            # -- Time step -- #
+            c = 0.0; f = 0.0
+            if timeStep == -1:
+                m, c, f = TimeStep().compute(fluid_count, pA[f_indexes], gamma_c, gamma_f)
+                dt = m
+            else:
+                dt = timeStep
+            ts[0, step] = dt; ts[1, step] = c; ts[2, step] = f
+
+            # -- Predict -- #
+            pA[f_indexes] = integrator.predict(dt, pA[f_indexes], damping)
+
+            # -- Compute -- #
+            nn.update(pA[indexes])
+
+            pA['h'][f_indexes] = computeH(1.3, fluid_count, pA[f_indexes]['m'], pA[f_indexes]['rho'])
+
+            pA['ax'][f_indexes]   = 0.0
+            pA['ay'][f_indexes]   = 0.0
+            pA['drho'][f_indexes] = 0.0
+
+            # Loop
+            pA[indexes] = _loop(pA[indexes], evFunc, gradFunc, methodClass, nn)
+
+            # -- Correct -- #
+            pA[f_indexes] = integrator.correct(dt, pA[f_indexes], damping)
+
+            # -- Store -- #
+            # Resize
+            if step >= size:
+                print('Resizing!')
+                copy = np.copy(data)
+                ts_c = np.copy(ts)
+
+                data = np.zeros((len(pA), 3, size * 2))
+                ts = np.zeros((3, size * 2))
+
+                data[:, :, 0:size-1] = copy
+                ts[:, 0:size-1] = ts
+
+                size = 2 * size
+            
+            # Write data
+            data[:, 0, step] = np.copy(pA['x'])
+            data[:, 1, step] = np.copy(pA['y'])
+            data[:, 2, step] = np.copy(pA['p'])
+
+            # Advance loop
+            if step % 1000 == 0:
+                print(t, ' @ ', step)
+            t += dt; step += 1
+
+        # Return the slice
+        return data[:, :, 0:step]
+        
 
     def run(self):
         """
@@ -340,7 +357,7 @@ class Solver:
             
             # Predict
             start = perf_counter()
-            self.particleArray[self.f_indexes] = self.integrator.predict(self.dt, self.particleArray[self.f_indexes], self.damping)
+            self.particleArray[self.indexes] = self.integrator.predict(self.dt, self.particleArray[self.indexes], self.damping)
             self.timing_data['integrate_prediction'] += perf_counter() - start
 
             # Compute the accelerations
@@ -349,12 +366,12 @@ class Solver:
             # Coupling to user-defined function.
             if self.coupling != None:
                 start = perf_counter()
-                self.particleArray = self.coupling(self.particleArray)
+                self.particleArray = self.coupling(self.particleArray, self)
                 self.timing_data['coupling'] += perf_counter() - start
 
             # Correct
             start = perf_counter()
-            self.particleArray[self.f_indexes] = self.integrator.correct(self.dt, self.particleArray[self.f_indexes], self.damping)
+            self.particleArray[self.indexes] = self.integrator.correct(self.dt, self.particleArray[self.indexes], self.damping)
             self.timing_data['integrate_correction'] += perf_counter() - start
 
             # Store to data
@@ -456,6 +473,8 @@ class Solver:
             location: str
                 Path to export arrays to, should include .hdf5
         """
+        println('Starting file export.')
+
         # Export hdf5 file
         with h5py.File(location, 'w') as h5f:
             h5f.create_dataset('particleArray', data=self.particleArray, shuffle=True, compression="gzip")
@@ -463,6 +482,8 @@ class Solver:
             h5f.create_dataset('dt_c', data=self.dt_c, shuffle=True, compression="gzip")
             h5f.create_dataset('dt_f', data=self.dt_f, shuffle=True, compression="gzip")
             h5f.create_dataset('settleTime', data=self.settleTime)
+
+            println('Starting key export.')
 
             for key in self.exportProperties:
                 h5f.create_dataset(key, data=np.stack(self.export[key]), shuffle=True, compression="gzip")

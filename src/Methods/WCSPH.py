@@ -8,6 +8,7 @@ from src.Particle import Particle
 
 spec = [
     ('useXSPH', boolean),
+    ('useSummationDensity', boolean),
     ('height', float64),
     ('rho0', float64),
 
@@ -32,7 +33,7 @@ spec = [
 ]
 @jitclass(spec)
 class WCSPH(Method):
-    def __init__(self, height: float, r0: float, rho0: float, useXSPH: bool, Pb: float):
+    def __init__(self, height: float, r0: float, rho0: float, useXSPH: bool, Pb: float, useSummationDensity: bool):
         """
             The WCSPH method as described by Monaghan in the 1992 free-flow paper.
 
@@ -47,7 +48,9 @@ class WCSPH(Method):
             useXSPH: bool
                 Should XSPH correction be used. XSPH modifies the velocity of the particles to be an averaged property.
             Pb: float
-                Background pressure, normally 101325 Pa
+                Background pressure, normally either 101325 Pa or 0 Pa.
+            useSummationDensity: bool
+                Should summation density be used instead of continuity density.
 
             Notes
             -----
@@ -57,6 +60,7 @@ class WCSPH(Method):
         self.height  = height
         self.rho0    = rho0
         self.useXSPH = useXSPH
+        self.useSummationDensity = useSummationDensity
 
         # Assign parameters
         self.epsilon = 0.5
@@ -179,10 +183,11 @@ class WCSPH(Method):
             [xsph_x, xsph_y] = XSPH.XSPH(self.epsilon, p, comp)
 
             # Velocity stays the same, xsph correction is changed.
+            # + because xsph is already negative.
             return [p['vx'], p['vy'], p['vx'] + xsph_x, p['vy'] + xsph_y]
         else:
             # Velocity stays the same
-            return [p['vx'], p['vy'], p['vx'], p['vy'],]
+            return [p['vx'], p['vy'], 0.0, 0.0]
 
     def compute_density_change(self, p: np.array, comp: np.array):
         """
@@ -193,5 +198,8 @@ class WCSPH(Method):
             comp:
                 Computed properties of near particles.
         """
-        return Continuity.Continuity(p, comp)
+        if (self.useSummationDensity == True):
+            return 0.0
+        else:
+            return Continuity.Continuity(p, comp)
 
