@@ -4,7 +4,6 @@ from typing import List
 from src.Common import _stack
 from src.Methods.Method import Method
 from src.Equations import Continuity, BodyForce, Momentum, TaitEOS, XSPH, BoundaryForce
-from src.Particle import Particle
 
 spec = [
     ('useXSPH', boolean),

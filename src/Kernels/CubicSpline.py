@@ -4,8 +4,6 @@ from numba import njit
 from src.Kernels.Kernel import Kernel
 
 class CubicSpline(Kernel):
-    alpha: float
-
     def __init__(self):
         self.alpha = 10 / (7 * pi)
 

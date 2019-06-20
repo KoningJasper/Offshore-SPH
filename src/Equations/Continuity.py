@@ -7,7 +7,7 @@ def Continuity(p, comp):
     for j in range(J):
         # Only do fluid to fluid
         if comp[j]['label'] != ParticleType.Fluid:
-                continue
+            continue
 
         # Manually compute the dot product.
         dot = comp[j]['vx'] * comp[j]['dw_x'] \

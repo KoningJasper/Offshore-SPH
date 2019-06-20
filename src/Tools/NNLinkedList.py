@@ -1,6 +1,6 @@
 import numpy as np
 from math import floor, ceil, sqrt
-from numba import jitclass, float64, boolean, int64
+from numba import jitclass, float64, boolean, int64, prange
 from typing import List
 
 
@@ -184,7 +184,7 @@ class NNLinkedList:
 
         # basic test for valid indices. Since we bin the particles with
         # respect to the origin, negative indices can never occur.
-        is_valid: bool = (
+        is_valid = (
             (ncx > cid_x > -1) and (ncy > cid_y > -1)
         )
 

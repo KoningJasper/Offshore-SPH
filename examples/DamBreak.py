@@ -8,8 +8,9 @@ from src.Solver import Solver
 from src.Helpers import Helpers
 from src.Methods.WCSPH import WCSPH
 from src.Kernels.CubicSpline import CubicSpline
+from src.Kernels.Wendland import Wendland
 from src.Integrators.PEC import PEC
-from src.Post.Plot import Plot
+# from src.Post.Plot import Plot
 from src.Common import ParticleType, particle_dtype
 
 def create_particles(N: int, mass: float, obs: bool):
@@ -57,7 +58,7 @@ def main():
     # ----- Setup ----- #
     # Main parameters
     N = 50; rho0 = 1000.0; duration = 5.0
-    XSPH = True; height = 25.0; plot = True
+    XSPH = True; height = 25.0; plot = False
 
     # Create some particles
     dA     = 25 * 25 / N ** 2 # Area per particle. [m^2]
@@ -65,8 +66,8 @@ def main():
     r0, pA = create_particles(N, mass, False)
 
     # Create the solver
-    kernel     = CubicSpline()
-    method     = WCSPH(height=height, r0=r0, rho0=rho0, useXSPH=XSPH, Pb=101325)
+    kernel     = Wendland()
+    method     = WCSPH(height=height, r0=r0, rho0=rho0, useXSPH=XSPH, Pb=0, useSummationDensity=False)
     integrator = PEC(useXSPH=XSPH, strict=False)
     solver     = Solver(method, integrator, kernel, duration, incrementalWriteout=False, h=1.6*r0)
 
@@ -84,12 +85,12 @@ def main():
     solver.timing()
 
     # Output
-    exportPath = f'{sys.path[0]}/dam-break-2d.hdf5'
+    exportPath = '{0}/dam-break-2d.hdf5'.format(sys.path[0])
     solver.save(exportPath)
 
     if plot == True:
-        plt = Plot(exportPath, title=f'Dam Break (2D); {len(pA)} particles', xmin=-3, xmax=151, ymin=-3, ymax=41)
-        plt.save(f'{sys.path[0]}/dam-break-2d.mp4')
+        plt = Plot(exportPath, title='Dam Break (2D); {0} particles'.format(len(pA)), xmin=-3, xmax=151, ymin=-3, ymax=41)
+        plt.save('{0}/dam-break-2d.mp4'.format(sys.path[0]))
 
 if __name__ == '__main__':
     main()

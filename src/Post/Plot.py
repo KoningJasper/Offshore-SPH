@@ -99,12 +99,12 @@ class Plot():
         self.output = file
 
         self._load()
-        print(f'{Fore.GREEN}File loaded successfully.{Style.RESET_ALL}')
+        print('{0}File loaded successfully.{1}'.format(Fore.GREEN, Style.RESET_ALL))
         self._init_plot()
 
         # Create a temp-dir for storage of files
         self.tempdir = tempfile.mkdtemp()
-        print(f'Exporting frames to directory: {self.tempdir}')
+        print('Exporting frames to directory: {0}'.format(self.tempdir))
 
         frames, t_series = self._calcFrames()
         for i, frame in tqdm(enumerate(frames), desc='Exporting frames', total=(len(frames) - 1), unit='frame'):
@@ -114,15 +114,15 @@ class Plot():
             # Export to temp
             self._export(i)
 
-        print(f'{Fore.GREEN}Frame export complete.{Style.RESET_ALL}')
-        print(f'Exported a total of {Fore.YELLOW}{len(frames)}{Style.RESET_ALL} frames.')
-        print(f'Converting to animation')
+        print('{0}Frame export complete.{1}'.format(Fore.GREEN, Style.RESET_ALL))
+        print('Exported a total of {0}{2}{1} frames.'.format(Fore.YELLOW, Style.RESET_ALL, len(frames)))
+        print('Converting to animation')
         self._export_mp4()
 
         end = perf_counter() - start
-        print(f'Rendered to file in {Fore.GREEN}{end:f}{Style.RESET_ALL} [s]')
+        print('Rendered to file in {0}{2:f}{1} [s]'.format(Fore.GREEN, Style.RESET_ALL, end))
 
-        print(f'{Fore.YELLOW}Plot will now throw an error that can be ignored.{Style.RESET_ALL}')
+        print('{0}Plot will now throw an error that can be ignored.{1}'.format(Fore.YELLOW, Style.RESET_ALL, end))
 
     # Private methods down from here.
 
@@ -150,7 +150,7 @@ class Plot():
         self.exporter.params.param('height').setValue(self.width, blockSignal=self.exporter.heightChanged)
 
         frame_str = "{:06}".format(frame)
-        self.exporter.export(f'{self.tempdir}/export_{frame_str}.png')
+        self.exporter.export('{0}/export_{1}.png'.format(self.tempdir, frame_str))
 
     def _calcFrames(self) -> Tuple[List[int], List[int]]:
         # Compute the target times, with avg. frame-rate.
@@ -182,7 +182,7 @@ class Plot():
             self.pl_t.clear()
         else:
             self.pl_t.setData(x=self.x[frame, self.temp_ind], y=self.y[frame, self.temp_ind], symbolBrush=pg.mkBrush('y'), symbolPen=None, symbolSize=self.sZ)
-        self.txtItem.setText(f't = {time:f} [s]')
+        self.txtItem.setText('t = {0:f} [s]'.format(time))
 
     def _init_plot(self):
         """ Initialize the plot. """
@@ -212,7 +212,7 @@ class Plot():
 
         # Text
         # TODO: Place the text, better automatically instead of hard-coded.
-        self.txtItem = pg.TextItem(text = f't = 0.00000 [s]')
+        self.txtItem = pg.TextItem(text = 't = 0.00000 [s]')
         self.pw.scene().addItem(self.txtItem)
         [[xmin, xmax], [_, _]] = self.txtItem.getViewBox().viewRange()
         xrange = xmax - xmin
@@ -242,8 +242,8 @@ class Plot():
 
     def _export_mp4(self):
         """ Exports gathered frames to mp4 file using ffmpeg. """
-        subprocess.run(f'ffmpeg -hide_banner -loglevel panic -y -framerate {self.video_fps} -i "{self.tempdir}/export_%06d.png" -s:v {self.height}x{self.width} -c:v libx264 \
--profile:v high -crf 20 -pix_fmt yuv420p "{self.output}"', shell=True)
+        subprocess.run('ffmpeg -hide_banner -loglevel panic -y -framerate {0} -i "{1}/export_%06d.png" -s:v {2}x{3} -c:v libx264 \
+-profile:v high -crf 20 -pix_fmt yuv420p "{4}"'.format(self.video_fps, self.tempdir, self.height, self.width, self.output), shell=True)
 
         # Cleanup export dir
         shutil.rmtree(self.tempdir)

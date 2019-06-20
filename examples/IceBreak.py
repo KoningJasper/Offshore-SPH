@@ -4,6 +4,8 @@ sys.path.insert(1, os.path.join(sys.path[0], '..'))
 
 import numpy as np
 import numba
+import h5py
+import scipy.linalg
 
 from src.Solver import Solver
 from src.Helpers import Helpers
@@ -11,12 +13,14 @@ from src.Methods.WCSPH import WCSPH
 from src.Kernels.Wendland import Wendland
 from src.Integrators.Verlet import Verlet
 from src.Integrators.PEC import PEC
+from src.Integrators.NewmarkBeta import NewmarkBeta
 from src.Post.Plot import Plot
 from src.Common import ParticleType, particle_dtype
 from src.Equations.SummationDensity import SummationDensity
 from src.Equations.TaitEOS import TaitEOS
+from src.Equations.Shepard import Shepard
 
-def create_particles(Nx: int, rho0: float, x_end: float, y_end: float, ice_max: float):
+def create_particles(Nx: int, rho0: float, x_end: float, y_end: float, ice_max: float, P: dict, compression: float = 1.0):
     """
         Nx: int
             Number of particles in x-direction. Total number of particles is computed by assuming a constant spacing (r0).
@@ -31,6 +35,10 @@ def create_particles(Nx: int, rho0: float, x_end: float, y_end: float, ice_max: 
     mass       = dA * rho0
     fluid['m'] = mass
 
+    # Compress the fluid vertically
+    fluid['y'] = fluid['y'] / compression
+    y_end      = y_end / compression
+
     # Maximum and minimum values of boundaries
     x_min = - r0
     x_max = x_end + r0
@@ -43,19 +51,35 @@ def create_particles(Nx: int, rho0: float, x_end: float, y_end: float, ice_max: 
     right  = Helpers.rect(xmin=x_max, xmax=x_max, ymin=y_min, ymax=y_max, r0=r0, mass=0., rho0=0., label=ParticleType.Boundary)
 
     # Create ice-layer
-    global yy
-    yy = fluid['y'].max() + r0
-    ice = ice_layer(r0, - ice_max * 2, ice_max, yy)
+    yy = fluid['y'].max() + 0.9 * r0
+    if P['model'] == 0:
+        # Above the water
+        yy = yy + 2.0
+        ice = ice_layer(r0, x_min, ice_max, yy, mass, rho0)
+    elif P['model'] == 1:
+        # Float in the middle.
+        ice = ice_layer(r0, x_min, x_max, yy, mass, rho0)
+    elif P['model'] in [2, 4, 5, 6]:
+        # Regular ice-sheet.
+        # With extra 
+        if P['model'] == 4:
+            yy = yy + 2.0 # Make it above the water.
+        lyr = ice_layer(r0, x_min, ice_max * 1.9, yy, mass, rho0)
+        xtra = Helpers.rect(xmin=ice_max * 1.9 + r0, xmax=x_max, ymin=yy, ymax=yy, r0=r0, mass=0., rho0=0., label=ParticleType.Boundary)
+        ice = np.concatenate((lyr, xtra))
+    else:
+        raise 'Invalid model.'
+    
+    # Return the particle array, and extra properties.
     return yy, r0, np.concatenate((fluid, bottom, left, right, ice))
-    # return r0, np.concatenate((fluid, bottom, left, right))
 
-def ice_layer(r0: float, xmin: float, xmax: float, y: float):
+def ice_layer(r0: float, xmin: float, xmax: float, y: float, mass: float, rho0: float):
     """ Creates a coupled particle-layer; representing the ice-sheet. """
-    return Helpers.rect(xmin=xmin, xmax=xmax, ymin=y, ymax=y, r0=r0, mass=0., rho0=0., label=ParticleType.Coupled)
+    return Helpers.rect(xmin=xmin, xmax=xmax, ymin=y, ymax=y, r0=r0, mass=mass, rho0=rho0, label=ParticleType.Coupled)
 
-def createMatrix(n: int, E: float, I: float, A: float, rho: float, L: float):
+def createMatrix(n: int, E: float, I: float, A: float, rho: float, L_n: float):
     """
-        Create matrices for a free-free beam.
+        Create matrices for a clamped-free beam.
 
         Returns:
             K: np.array
@@ -63,61 +87,171 @@ def createMatrix(n: int, E: float, I: float, A: float, rho: float, L: float):
             M: np.array
                 N x N, identiy matrix containing mass
     """
-    # Central difference stamp.
-    stamp = np.array([1, -4, 6, -4, 1])
-    order = 2
-
-    # Initialize full matrix
-    fmat = np.zeros((n, n + 2 * order))
+    # Initialize full FD-matrix
+    stamp = np.array([1, -4, 6, -4, 1]) # Central difference stamp.
+    fd_coef = np.zeros((n, n + 4))
     for i in range(n):
-        fmat[i, i:i + len(stamp)] = stamp
+        fd_coef[i, i:i + len(stamp)] = stamp
 
     # Apply BC
-    nmat = fmat[:, 2:-2]
-    n_i = n - 1 # Index based
-
-    # Set left & right to free-flow
-    nmat[0, 0] = 2; nmat[0, 2] = 2; nmat[1, 0] = -2; nmat[1,1] = 5
-    nmat[n_i, n_i] = 2; nmat[n_i, n_i - 2] = 2; nmat[n_i - 1, n_i] = -2; nmat[n_i - 1, n_i - 1] = 5
-
-    # Node length
-    global L_n
-    L_n = L / n
+    fd_coef = fd_coef[:, 2:-2]
+    fd_coef[0, 0] = 7; fd_coef[n - 1, n - 1] = 2; fd_coef[n - 1, n - 3] = 2
+    fd_coef[n - 2, n - 1] = -2; fd_coef[n - 2, n - 2] = 5
 
     # Construct K matrix
-    K = (E * I / L_n ** 3) * nmat
+    K = (E * I / L_n ** 4) * fd_coef
 
     # Construct the mass matrix.
-    M = np.eye(n,n) * rho * A * L_n
+    M = np.eye(n,n) * rho * A
 
-    # Invert the matrix
-    M_inv = np.linalg.inv(M)
-
-    return K, M_inv
+    return K, M
     
+@numba.jit()
 def coupling(pA: np.array, solver: Solver) -> np.array:
+    P = solver.couplingProperties
+    t = solver.t - solver.settleTime # Actual simulation time.
+    
     # Extract state data
     cInd = (pA['label'] == ParticleType.Coupled)
-    w = pA[cInd]['y']
-    x = pA[cInd]['x']
+    y    = pA[cInd]['y'] # GCS
+    w    = y - P['y0']   # LCS
+    wdot = pA[cInd]['vy']
+    x    = pA[cInd]['x']
+
+    # Find the left most fluid particle.
+    xmin = pA['x'][solver.f_indexes].min() 
+
+    if solver.settled == False:
+        # Do absolutely nothing, while settling.
+        return pA
 
     # Determine the pressure; using SPH interpolation
-    pW = np.zeros_like(w)
-    for i in range(len(w)):
-        pW[i] = pressure_SPH(x[i], w[i], pA, solver)
+    P_n = np.zeros_like(w)
+    rho_n = np.copy(pA['rho'][cInd])
+    if P['model'] > 0:
+        for i in range(len(w)):
+            if x[i] < xmin:
+                continue
+            else:
+                rho_n[i], P_n[i] = pressure_SPH(x[i], y[i], pA, solver, P)
+    F_n = P_n * P['b'] # Force (per m) acting on center of block, upward.
+    P['Pressure'].append(P_n)
 
-    # Determine force on ice
-    Fw = np.zeros_like(pW)
+    # Determine (vertical) force on ice
+    Fw = np.zeros_like(w)
+    if P['model'] in [5, 6]:
+        # Ice-structure force
+        _, Fw_last = iceForce(t, w, P)
+        if w[-1] > 0:
+            Fw_last[1] = - w[-1] * P['m2_stiffness'] * P['b']
 
+        # Determine the mode
+        iceMode(t, solver.dt, P)
+
+        # Only Y-force, only on the most right node, and convert to N/m
+        Fw[-1] = Fw_last[1] / P['L_n'] 
+    elif P['model'] in [0]:
+        # Static force for model 0 (N/m)
+        Fw[-1] = 1e4 / P['L_n']
+    
+    if P['model'] in [1, 2, 4, 5, 6]:
+        # Add gravity in case of model >1, downward. (N per meter)
+        Fw = Fw - P['m'] * P['g']
+
+        # Add upward force on the left, to prevent rotation of the sheet, equal to w * rho_w * g
+        F_r = np.zeros_like(w)
+        for i in range(len(w)):
+            if x[i] >= xmin:
+                continue
+            else:
+                F_r[i] = - w[i] * solver.method.rho0 * P['g']
+        P['F_r'].append(F_r)
+        Fw = Fw + F_r
+    
     # Compute accelerations
-    a = np.matmul(M_inv, (pW + np.dot(K, w) + Fw))
-
+    a = solver.couplingIntegrator.acceleration(solver.dt, Fw + F_n, w, wdot)
+    
     # Set the particle array
-    pA['ay'][cInd] = a
-
+    pA['ay'][cInd]  = a
+    pA['p'][cInd]   = P_n
+    pA['rho'][cInd] = rho_n
+    
     return pA
 
-def pressure_SPH(x: float, y: float, pA: np.array, solver: Solver):
+@numba.jit()
+def iceForce(t: float, w: np.array, P: dict):
+    """
+        Computes the force in newtons exerted on the ice by the hull.
+        
+        Parameters
+        ----------
+        t: float
+            current time [s].
+        w: np.array
+            y-coordinate of the ice-sheet [m].
+        P: dict
+            Properties
+            
+        Returns
+        -------
+        P: dict
+            Properties
+        F: np.array
+            Force on the node at the hull due to the hull forces.
+    """
+    # Compute interface length and penetration
+    ice_x       = P['ice_v'] * t
+    perp        = np.sin(P['alpha']) * ice_x + np.cos(P['alpha']) * w[-1]
+    L_interface = perp * (np.tan(P['alpha']) + 1 / np.tan(P['alpha']))
+    
+    # Store the penetration & interface length for later retrieval
+    P['penetration'].append(perp)
+    P['L_interface'].append(L_interface)
+    
+    # Compute normal
+    vsl_hull_normal = - P['alpha'] - np.pi / 2
+    vsl_hull_n = np.array([np.cos(vsl_hull_normal), np.sin(vsl_hull_normal)])
+    
+    m = P['mode']
+    if m == 1:
+        # Mode 1; crushing
+        fc_amp = P['b'] * P['ice_fy_comp'] * L_interface
+    elif m == 2:
+        # Mode 2; sliding
+        if L_interface < P['m2_ref_l']:
+            fc_amp = (P['m2_ref_force'] / vsl_hull_n[1]) - P['b'] * P['m2_stiffness'] * (P['m2_ref_l'] - L_interface)
+        else:
+            # Avoid large forces around the transition.
+            fc_amp = P['b'] * P['ice_fy_comp'] * L_interface
+    
+    # Compute force, with direction.
+    F = fc_amp * vsl_hull_n
+    P['F_a'].append(F[1]) # Store the vertical force
+    return P, F
+
+@numba.jit()
+def iceMode(t: float, dt: float, P: dict):
+    # Transition free period
+    if (t - P['t_trans']) < 0.01:
+        return P
+    
+    v_pen = np.diff(P['penetration']) / dt # Speed of penetration [m/s]
+    v_pen = v_pen[-1] # Only the last speed.
+    
+    if P['mode'] == 1 and v_pen < 0:
+        P['m2_ref_l'] = P['L_interface'][-1]
+        P['m2_ref_force'] = P['F_a'][-1]
+        P['t_trans'] = t
+        P['mode'] = 2
+        return P
+    elif P['mode'] == 2 and P['F_a'][-1] < P['m2_ref_force'] and v_pen >= 0:
+        P['t_trans'] = t
+        P['mode'] = 1
+        return P
+    return P
+
+@numba.jit()
+def pressure_SPH(x: float, y: float, pA: np.array, solver: Solver, P: dict):
     """ 
         Uses SPH to interpolate the pressure at the given location (x, y).
         Summation density is used to estimate the density at the location, 
@@ -132,71 +266,283 @@ def pressure_SPH(x: float, y: float, pA: np.array, solver: Solver):
         pA: np.array
             Complete particle array.
     """
-    h = 1.6 # Arbitrarily chosen; ish.
-
-    if x < 0.0:
-        return solver.method.rho0 * (y - y00)
+    h = P['h']
 
     # Find the near particles
-    h_i, _, dist, near_arr = solver.nn.nearPos(x, y, h, pA)
+    h_i, _, dist, near_arr = solver.nn.nearPos(x, y - solver.method.r0, h, pA)
 
     # Compute kernel value
     w = solver.kernel.evaluate(dist, np.ones_like(h_i) * h)
 
+    # Correct using shepard filter.
+    w_tilde = Shepard(w, pA[near_arr]['label'], pA[near_arr]['m'], pA[near_arr]['rho'])
+
     # Compute summation density at the location
-    rho = SummationDensity(pA[near_arr]['label'], pA[near_arr]['m'], w)
+    rho = SummationDensity(pA[near_arr]['label'], pA[near_arr]['m'], w_tilde)
 
-    # Compute the pressure using TaitEOS, without -1.
-    p = (rho / solver.method.rho0) ** solver.method.gamma * solver.method.B
+    # Compute the pressure using TaitEOS
+    ratio = (rho / solver.method.rho0) ** solver.method.gamma
+    p = (ratio - 1.0) * solver.method.B
+    return rho, p
 
-    return p
+@numba.jit()
+def angle(w: np.array):
+    """
+        Computes the angle of the beam.
+
+        Parameters
+        ----------
+        w: np.array
+            y-coordinate of the ice-sheet
+
+        Returns
+        -------
+        phi: np.array
+            Array of angles for each elements.
+    """
+    # Initialize full matrix
+    stamp = [-1/2, 0, 1/2]
+    mat = np.zeros((len(w), len(w) + 2))
+    for i in range(len(w)):
+        mat[i, i:i + len(stamp)] = stamp
+
+    # BCs
+    mat = mat[:, 1:-1]
+    mat[0, 0] = -1; mat[0, 1] = 1
+    mat[len(w) - 1, len(w) - 1] = 1; mat[len(w) - 1, len(w) - 2] = -1
+    
+    # Compute the angle
+    phi = np.dot(mat, w)
+    return phi
+
+def iceStress(w: np.array, F: np.array, E: float, h: float, v: float, L_n: float):
+    """
+        Computes the stress in the beam/ice-sheet for a given w
+        
+        Parameters
+        ----------
+        w: np.array
+            y-coordinate positions of the ice-sheet
+        F: np.array
+            x and y force on the ice-sheet.
+            
+        Returns
+        -------
+        stress: np.array
+            the stress at each nodal location of the ice-sheet.
+    """
+    
+    # Initialize the FD-matrix
+    stamp = [1, -2, 1]
+    mat = np.zeros((len(w) - 2, len(w)))
+    for i in range(len(w) - 2):
+        mat[i, i:i + len(stamp)] = stamp
+        
+    # Compute w'' ; w''(0) = 0 and w''(L) = 0
+    dw2 = np.zeros(len(w))
+    dw2[1:-1] = np.dot(mat, w) / (L_n ** 2)
+    
+    stress = np.abs(E * h / (2 * (1 - v ** 2)) * dw2) - F[0] / h
+    return stress
+    
+def natFreq(M: np.array, K: np.array, n: int):
+    """
+        Compute the n-th natural frequency of the system.
+        
+        Parameters
+        ----------
+        M: np.array
+            Mass matrix
+        K: np.array
+            Stiffness matrix
+        n: int
+            N-th natural frequency to return.
+            
+        Returns
+        -------
+        omega: float
+            The n-th natural frequency of the system.
+    """
+    
+    # Compute eigenvector and eigenvalue.
+    w, v = scipy.linalg.eig(M, K)
+    
+    # Compute frequency
+    omega = 1 / np.sqrt(np.real(w))
+    omega = omega / (2 * np.pi)
+    
+    return omega[n]
+    
+def post(file: str):
+    with h5py.File(file, 'r') as h5f:
+        pA = h5f['particleArray'][:]
+        p = h5f['p'][:]
+        x = h5f['x'][:]
+        y = h5f['y'][:]
+        dt = h5f['dt_a'][:]
+        rho = h5f['rho'][:]
+        F_a = h5f['F_a'][:]
+        
+        # Read some scalars
+        L_n = h5f['L_n'][()]; m = h5f['m'][()]; b = h5f['b'][()]
+        yy = h5f['y0'][()]; v_ice = h5f['ice_v'][()]; v = h5f['pois'][()]
+        h = h5f['hh'][()] * 2; E = h5f['E'][()]
+
+    fIndex = pA['label'] == 0
+    bIndex = pA['label'] == 1
+    cIndex = pA['label'] == 3
+
+    s = []
+    fl = 5e5; xmin = 45; xmax = x[0, cIndex].max(); tt = 0.0
+    for i in range(len(y)):
+        w = y[i, cIndex] - yy
+        xx = x[i, cIndex]
+        
+        # Filter w for only > xmin
+        w_f = []; x_f = []
+        for n in range(len(w)):
+            if xx[n] >= xmin and xx[n] <= (xmax - 7):
+                w_f.append(w[n]); x_f.append(xx[n])
+        w_f = np.array(w_f)
+        
+        s_a = iceStress(w_f, np.zeros_like(w_f), E, h, v, L_n)
+        
+        if s_a.max() > fl and tt > 0.1:
+            t = dt[0:i].sum()
+            LL = np.array(x_f).max() - x_f[s_a.argmax()] + 7
+            print('V_ice: {0}'.format(v_ice))
+            print('Failed @ t = {0:f} s'.format(t))
+            print('Breaking Length: {0:f} m'.format(LL))
+            break
+        s.append(s_a)
+        tt += dt[i]
+
+    with open('BL.txt', 'a') as f:
+        f.write('({0}, {1}, {2}, {3})\n'.format(v_ice, t, LL, cIndex.sum()))
 
 def main():
     # ----- Setup ----- #
     # Simulation parameters
-    duration = 3.0   # Duration of the simulation [s]
+    duration = 5.0  # Duration of the simulation [s]
     height   = 10.0  # Height of the fluid box [m]
-    width    = 10.0  # Width of the fluid box [m]
+    width    = 60.0  # Width of the fluid box [m]
+    compress = 1.0   # (vertical) compression factor [-]
 
     # Computed parameters
-    Nx = 40; ice_max = width / 2.0
+    ice_max = width / 2.0
 
+    # Coupling object
+    P = { 'g': 9.81, 'L_interface': [], 'F_a': [], 'Pressure': [], 'F_r': []}
+    
     # Other parameters
-    rho0 = 1000.0; XSPH = True 
-    plot = True
+    rho0 = 1025.0
+    XSPH = True
+    print('Three different models are implemented.')
+    print('0. A cantilever beam, with a static force on the end, above the water.')
+    print('1. An short sheet of ice (cantilever beam) floating on water without any force.')
+    print('2. An long sheet of ice (cantilever beam) floating on water without any force.')
+    print('3. --')
+    print('4. The ice-sheet above the water.')
+    print('5. The scaled ice-sheet model (Valanto, 1992).')
+    print('6. Full scale model (Keijdener, 2018).')
+    P['model'] = int(input('Select model: '))
+    plot = input('Create animation after solving? (y/n) ').lower() == 'y'
 
+    if P['model'] > 6 or P['model'] < 0:
+        raise 'Invalid model selected'
+    
+    if P['model'] == 5:
+        height = 1.0; width = 2.0
+        ice_max = 1.0
+
+    Nx = int(input('Number of particles in x-direction (100 > N > 10): '))
+    if Nx > 500 or Nx < 10:
+        raise 'Invalid number of particles.'
+    
     # Create some particles
-    global y00
-    y00, r0, pA = create_particles(Nx, rho0, width, height, ice_max)
+    y00, r0, pA = create_particles(Nx, rho0, width, height, ice_max, P, compress)
+    P['y0'] = y00
 
     # -- Create matrix -- #
-
     # Beam/Ice properties
-    L = ice_max * 3 # Total Length [m]
-    b = 1       # Height of the beam [m]
-    h = 1       # Width of the beam [m]
+    L = ice_max + r0              # Total Length [m]; one third overlap with water, two thirds to the left.
+    b = 1                         # Width of the beam [m]
+    h = 1                         # Height of the beam [m]
+    v = 0.3                       # Poisson ratio [-]
+    P['alpha'] = 15 / 180 * np.pi # Angle of the hull [rad]
+    P['ice_v'] = 0.2              # Velocity of the ice-sheet [m/s]
+    P['ice_fy_comp'] = 11e3       # Compressive strength of the ice [Pa]
+    P['m2_stiffness'] = 15e5      # Rigid spring stiffness [N/m]
+    P['b'] = b
+
+    # General properties
+    if P['model'] in [0]:
+        E = 200e9; rho = 7800
+        h = 1/33.33
+    elif P['model'] in [1, 2]:
+        E = 140e6; rho = 916.0; duration = 1.0
+        if P['model'] == 1:
+            L = 2 * ice_max 
+        elif P['model'] == 2:
+            L = 5 * ice_max
+    elif P['model'] in [5]:
+        duration = 1.5
+        L   = 5 * ice_max
+        h   = 1/33.33
+        b   = 0.34; P['b'] = b
+        E   = 140e6 # Young's Modulus [Pa]
+        rho = 916.0
+    elif P['model'] in [6]:
+        L = 1.9 * ice_max
+        P['ice_v'] = float(input('Ice velocity: '))
+        duration = float(input('Duration: '))
+        E = 5e9 / (1 - v ** 2); P['ice_fy_comp'] = 6E5
+        P['m2_stiffness'] = 50 * P['ice_fy_comp']
+        P['alpha'] = 45 / 180 * np.pi
+        rho = 925.0
+    
+    # Ice-penetration
+    P['mode'] = 1          # Start in crushing mode.
+    P['penetration'] = [0] # Start with zero penetration.
+    P['t_trans'] = 0       # Transition time [s]
+    P['hh'] = h / 2
+
+    # Compute one-time dynamic h.
+    P['h'] = 1.6 * r0
 
     # Compute properties
     n = len(pA[pA['label'] == ParticleType.Coupled]) # Number of Nodes [-]
     A = b * h                                        # Area [m^3]
     I = 1 / 12 * b * h ** 3                          # Area moment of Inertia [kg/m^3]
+    P['L_n'] = L / n                                 # Node length [m]
+    P['m'] = rho * A                                 # Nodal mass [kg/m]
 
-    # General properties
-    v   = 0.3                  # Poisson ratio [-]
-    # E   = 140e6 / (1 - v ** 2) # Youngs Modulus [Pa]
-    E = 1
-    rho = 916.0                # Density [kg/m^3]
+    # Assign some props
+    P['E'] = E
+    P['pois'] = v
 
-    # Compute matrix
-    global K, M_inv
-    K, M_inv = createMatrix(n, E, I, A, rho, L)
-    # coupling = None
+    # Compute stiffness and mass matrices
+    K, M = createMatrix(n, E, I, A, rho, P['L_n'])
+
+    # Set mass
+    pA[pA['label'] == ParticleType.Coupled]['m'] = P['m']
+
+    # Compute damping matrix
+    # xi     = 1 / P['ice_v'] ** 2 * 6          # Damping factor [-]
+    xi     = 1 / P['ice_v'] ** 2 * 5          # Damping factor [-]
+    c_crit = np.sqrt(rho * A * rho0 * P['g']) # Critical damping factor [-]
+    C      = np.eye(n) * 2 * xi * c_crit      # Damping matrix [N/s]
 
     # Create the solver
+    newmark    = NewmarkBeta(beta=1/4, gamma=1/2, M=M, K=K, C=C)
     kernel     = Wendland()
     method     = WCSPH(height=height, rho0=rho0, r0=r0, useXSPH=XSPH, Pb=0, useSummationDensity=False)
     integrator = PEC(useXSPH=XSPH, strict=False)
-    solver     = Solver(method, integrator, kernel, duration, quick=False, incrementalWriteout=False, maxSettle=0, exportProperties=['x', 'y', 'p', 'vx', 'vy'], coupling=coupling)
+    solver     = Solver(
+                    method, integrator, kernel, duration, quick=False, 
+                    incrementalWriteout=False, maxSettle=1, exportProperties=['x', 'y', 'p', 'vx', 'vy', 'rho'], 
+                    coupling=coupling, couplingIntegrator=newmark, couplingProperties=P, timeStep=None
+                )
 
     # Add the particles
     solver.addParticles(pA)
@@ -212,13 +558,17 @@ def main():
     solver.timing()
 
     # Output
-    exportPath = f'{sys.path[0]}/IceBreak.hdf5'
-    solver.save(exportPath)
+    exportPath = '{0}/IceBreak-{1}.hdf5'.format(sys.path[0], P['model'])
+    solver.save(exportPath, True, solver.couplingProperties)
 
+    # Create an animation.
     if plot == True:
-        plt = Plot(exportPath, title=f'IceBreak (2D); {len(pA)} particles', xmin=-ice_max, xmax=width + 2 * r0, ymin=- 2 * r0, ymax=height * 1.3 + 2 * r0)
-        plt.save(f'{sys.path[0]}/IceBreak.mp4')
+        title = 'IceBreak (2D); {0} particles'.format(len(pA))
+        plt = Plot(exportPath, title=title, xmin=-1, xmax=width + 2 * r0, ymin=- 2 * r0, ymax=height * 1.3 + 2 * r0)
+        plt.save('{0}/IceBreak-{1}.mp4'.format(sys.path[0], P['model']))
+
+    # Load the file and determine breaking length
+    post(exportPath)
 
 if __name__ == '__main__':
     main()
-

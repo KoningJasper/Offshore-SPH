@@ -103,7 +103,7 @@ def _assignProps(i: int, particleArray: np.array, near_arr: np.array, h_i: np.ar
     # END_LOOP
     return calcProps
 
-@njit(fastmath=True)
+@njit(fastmath=True, nogil=True)
 def computeH(sigma: float, J: int, m: np.array, rho: np.array):
     """ Compute (dynamic) h size, based on Monaghan 2005. """
     d = 2 # 2 Dimensions (x, y)
@@ -111,13 +111,13 @@ def computeH(sigma: float, J: int, m: np.array, rho: np.array):
     h = np.zeros_like(m)
     
     # Outside of compute loop so prange can be used.
-    for j in range(J):
+    for j in prange(J):
         if rho[j] > 1e-12:
             h[j] = sigma * (m[j] / rho[j]) ** f
     
     return h
 
-@njit(fastmath=True)
+@njit(fastmath=True, nogil=True)
 def _loop(pA, evFunc, gradFunc, methodClass, nn):
     p = methodClass.compute_pressure(pA)
     c = methodClass.compute_speed_of_sound(pA)
@@ -140,7 +140,7 @@ def _loop(pA, evFunc, gradFunc, methodClass, nn):
             pA[i]['rho'] = SummationDensity(pA[near_arr]['label'], pA[near_arr]['m'], w)
 
     # Regular loop
-    for i in range(len(pA)):
+    for i in prange(len(pA)):
         if pA[i]['label'] != ParticleType.Fluid:
             continue
 
