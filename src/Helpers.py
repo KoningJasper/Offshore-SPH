@@ -4,7 +4,7 @@ from src.Common import particle_dtype, ParticleType
 
 class Helpers:
     @staticmethod
-    def rect(xmin: float, xmax: float, ymin: float, ymax: float, r0: float, mass: float = 1.0, rho0: float = 1000.0, pack: bool = False, label: ParticleType = ParticleType.Fluid, strict: bool = False) -> np.array:
+    def rect(xmin: float, xmax: float, ymin: float, ymax: float, r0: float, mass: float = 1.0, rho0: float = 1000.0, pack: bool = False, label: ParticleType = ParticleType.Fluid, strict: bool = False, packDirection: str = 'y') -> np.array:
         """
             Creates a particle array that represents a rectangle in a square configuration.
 
@@ -60,11 +60,18 @@ class Helpers:
         pA['rho']   = rho0
 
         # Use hex packing
-        if pack == True and xrange > 0:
+        if (pack == True) and (xrange > 0):
             # Iterate the rows of particles
-            for i in range(floor(Nx / 2)):
-                for p in pA[2*i*Ny : 2*i*Ny + Ny]:
-                    p['y'] += r0 / 2
+            if packDirection == 'y':
+                for i in range(floor(Nx / 2)):
+                    for p in pA[2*i*Ny : 2*i*Ny + Ny]:
+                        p['y'] += r0 / 2
+            elif packDirection == 'x':
+                for i in range(floor(Ny / 2)):
+                    for p in pA[2 * i :: Nx]:
+                        p['x'] += r0 / 2
+            else:
+                raise Exception('Invalid packing direction.')
 
             if strict == True:
                 # Check each particle

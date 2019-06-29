@@ -43,7 +43,7 @@ class Solver:
 
     damping = 0.05 # Damping factor
 
-    def __init__(self, method: Method, integrator: Integrator, kernel: Kernel, duration: float = 1.0, quick: bool = True, incrementalWriteout: bool = True, incrementalFile: str = "export", incrementalFreq: int = 1000, exportProperties: List[str] = ['x', 'y', 'p'], kE: float = 0.8, maxSettle: int = 500, timeStep: float = None, h: float = None, coupling = None, couplingIntegrator = None, couplingProperties = None):
+    def __init__(self, method: Method, integrator: Integrator, kernel: Kernel, duration: float = 1.0, quick: bool = True, incrementalWriteout: bool = True, incrementalFile: str = "export", incrementalFreq: int = 1000, exportProperties: List[str] = ['x', 'y', 'p'], kE: float = 0.8, maxSettle: int = 500, timeStep: float = None, h: float = None, coupling = None, couplingIntegrator = None, couplingProperties = None, customSettle = None, damping: float = 0.05):
         """
         Initializes a new solver object. The solver orchestrates the entire solving of the SPH simulation.
 
@@ -89,7 +89,7 @@ class Solver:
         h: float
             Fixed smoothing length, leave None for dynamic smoothing length (Monaghan, 2005).
 
-        coupling: Function(pA: particleArray) -> particleArray
+        coupling: Function(pA: particleArray, solver: Solver) -> particleArray
             Coupling function.
         
         couplingIntegrator:
@@ -97,6 +97,9 @@ class Solver:
         
         couplingProperties: dict
             Properties for the coupling
+
+        customSettle: Function(pA: particleArray, solver: Solver) -> bool
+            A custom settling function to determine if the simulation has settled.
         """
 
         # Initialize classes
@@ -113,11 +116,13 @@ class Solver:
         self.timeStep  = timeStep
         self.h         = h
         self.ts_error  = 0
+        self.damping   = damping
         
         # Coupling function
         self.coupling = coupling
         self.couplingIntegrator = couplingIntegrator
         self.couplingProperties = couplingProperties
+        self.customSettle = customSettle
 
         # Incremental write-out
         self.incrementalWriteout = incrementalWriteout
@@ -399,16 +404,22 @@ class Solver:
             self.timing_data['storage'] += perf_counter() - start
 
             # End integration-loop
-            if self.damping == 0:
+            if self.settled == True:
                 # Only move forward if damping
                 self.t += self.dt
             t_step += 1
 
             if self.settled == False and t_step > 1:
-                # Compute kinetic energy
-                ke = KineticEnergy(self.num_particles, self.particleArray[self.f_indexes])
-                if (ke < self.kE) or (t_step > self.maxSettle):
+                ke = 1e12; cs = False
+                if self.customSettle == None:
+                    # Compute kinetic energy
+                    ke = KineticEnergy(self.num_particles, self.particleArray[self.f_indexes])
+                else:
+                    cs = self.customSettle(self.particleArray, self)
+
+                if (ke < self.kE) or (t_step > self.maxSettle) or (cs == True):
                     if (t_step > self.maxSettle):
+                        # Print extra warning.
                         println('{0}WARNING!{1} Maximum settle steps reached, check configuration, maybe increase spacing between wall and particles.'.format(Fore.YELLOW, Style.RESET_ALL))
                         
                     # Remove the settling bar

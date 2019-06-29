@@ -28,7 +28,7 @@ def create_particles(Nx: int, rho0: float, x_end: float, y_end: float, ice_max: 
     r0   = x_end / Nx # Distance between particles.
 
     # Create some fluid particles
-    fluid = Helpers.rect(xmin=0, xmax=x_end, ymin=0, ymax=y_end, r0=r0, mass=1.0, rho0=rho0, pack=True)
+    fluid = Helpers.rect(xmin=0, xmax=x_end, ymin=0, ymax=y_end, r0=r0, mass=1.0, rho0=rho0, pack=False)
 
     # Compute the mass based on the average area
     dA         = x_end * y_end / len(fluid)
@@ -51,7 +51,7 @@ def create_particles(Nx: int, rho0: float, x_end: float, y_end: float, ice_max: 
     right  = Helpers.rect(xmin=x_max, xmax=x_max, ymin=y_min, ymax=y_max, r0=r0, mass=0., rho0=0., label=ParticleType.Boundary)
 
     # Create ice-layer
-    yy = fluid['y'].max() + 0.9 * r0
+    yy = fluid['y'].max() + r0
     if P['model'] == 0:
         # Above the water
         yy = yy + 2.0
@@ -121,10 +121,6 @@ def coupling(pA: np.array, solver: Solver) -> np.array:
     # Find the left most fluid particle.
     xmin = pA['x'][solver.f_indexes].min() 
 
-    if solver.settled == False:
-        # Do absolutely nothing, while settling.
-        return pA
-
     # Determine the pressure; using SPH interpolation
     P_n = np.zeros_like(w)
     rho_n = np.copy(pA['rho'][cInd])
@@ -135,12 +131,15 @@ def coupling(pA: np.array, solver: Solver) -> np.array:
             else:
                 rho_n[i], P_n[i] = pressure_SPH(x[i], y[i], pA, solver, P)
     F_n = P_n * P['b'] # Force (per m) acting on center of block, upward.
-    P['Pressure'].append(P_n)
+
+    if solver.customSettle == None:
+        # Only store when not using custom settle, otherwise custom settle already stores the information.
+        P['Pressure'].append(P_n)
 
     # Determine (vertical) force on ice
     Fw = np.zeros_like(w)
-    if P['model'] in [5, 6]:
-        # Ice-structure force
+    if P['model'] in [5, 6] and solver.settled == False:
+        # Ice-structure force, don't force when settling.
         _, Fw_last = iceForce(t, w, P)
         if w[-1] > 0:
             Fw_last[1] = - w[-1] * P['m2_stiffness'] * P['b']
@@ -269,7 +268,7 @@ def pressure_SPH(x: float, y: float, pA: np.array, solver: Solver, P: dict):
     h = P['h']
 
     # Find the near particles
-    h_i, _, dist, near_arr = solver.nn.nearPos(x, y - solver.method.r0, h, pA)
+    h_i, _, dist, near_arr = solver.nn.nearPos(x, y - P['hh'], h, pA)
 
     # Compute kernel value
     w = solver.kernel.evaluate(dist, np.ones_like(h_i) * h)
@@ -284,6 +283,57 @@ def pressure_SPH(x: float, y: float, pA: np.array, solver: Solver, P: dict):
     ratio = (rho / solver.method.rho0) ** solver.method.gamma
     p = (ratio - 1.0) * solver.method.B
     return rho, p
+
+@numba.jit()
+def custom_settling(pA: np.array, solver: Solver) -> bool:
+    """
+        Determines if the coupling has settled.
+
+        Parameters
+        ----------
+        pA: np.array
+            Particle array
+
+        Returns
+        -------
+        settled: bool
+            Has the coupling settled?
+    """
+    # Just wait the 1800 time-steps.
+    return False
+    # P = solver.couplingProperties
+
+    # # Extract state data
+    # cInd = (pA['label'] == ParticleType.Coupled)
+    # y    = pA[cInd]['y'] # GCS
+    # w    = y - P['y0']   # LCS
+    # x    = pA[cInd]['x']
+
+    # # Find the left most fluid particle.
+    # xmin = pA['x'][solver.f_indexes].min() 
+
+    # # Determine the pressure; using SPH interpolation
+    # P_n = np.zeros_like(w)
+    # rho_n = np.copy(pA['rho'][cInd])
+    # for i in range(len(w)):
+    #     if x[i] < xmin:
+    #         continue
+    #     else:
+    #         rho_n[i], P_n[i] = pressure_SPH(x[i], y[i], pA, solver, P)
+    # P['Pressure'].append(P_n)
+
+    # # Compute the mean pressure over-time, at at least a 200 time-steps.
+    # if len(P['Pressure']) > 200:
+    #     meanPressure = np.array(P['Pressure'][-200:]).mean(axis=1) / 1e3
+
+    #     # See if the max and min differ a maximum of 2 kPa from mean of mean
+    #     mmean = meanPressure.mean()
+    #     if (abs(mmean - meanPressure.max()) <= 2) and (abs(mmean - meanPressure.min()) <= 2):
+    #         return True
+    #     else:
+    #         return False
+    # else:
+    #     return False
 
 @numba.jit()
 def angle(w: np.array):
@@ -376,23 +426,16 @@ def natFreq(M: np.array, K: np.array, n: int):
 def post(file: str):
     with h5py.File(file, 'r') as h5f:
         pA = h5f['particleArray'][:]
-        p = h5f['p'][:]
         x = h5f['x'][:]
         y = h5f['y'][:]
         dt = h5f['dt_a'][:]
-        rho = h5f['rho'][:]
-        F_a = h5f['F_a'][:]
         
         # Read some scalars
         L_n = h5f['L_n'][()]; m = h5f['m'][()]; b = h5f['b'][()]
         yy = h5f['y0'][()]; v_ice = h5f['ice_v'][()]; v = h5f['pois'][()]
-        h = h5f['hh'][()] * 2; E = h5f['E'][()]
+        h = h5f['hh'][()] * 2; E = h5f['E'][()]; stl = h5f['settleTime'][()]
 
-    fIndex = pA['label'] == 0
-    bIndex = pA['label'] == 1
-    cIndex = pA['label'] == 3
-
-    s = []
+    s = []; cIndex = pA['label'] == 3
     fl = 5e5; xmin = 45; xmax = x[0, cIndex].max(); tt = 0.0
     for i in range(len(y)):
         w = y[i, cIndex] - yy
@@ -407,8 +450,8 @@ def post(file: str):
         
         s_a = iceStress(w_f, np.zeros_like(w_f), E, h, v, L_n)
         
-        if s_a.max() > fl and tt > 0.1:
-            t = dt[0:i].sum()
+        if s_a.max() > fl and tt > (0.1 + stl):
+            t = dt[0:i].sum() - stl
             LL = np.array(x_f).max() - x_f[s_a.argmax()] + 7
             print('V_ice: {0}'.format(v_ice))
             print('Failed @ t = {0:f} s'.format(t))
@@ -456,8 +499,8 @@ def main():
         ice_max = 1.0
 
     Nx = int(input('Number of particles in x-direction (100 > N > 10): '))
-    if Nx > 500 or Nx < 10:
-        raise 'Invalid number of particles.'
+    # if Nx > 500 or Nx < 10:
+        # raise 'Invalid number of particles.'
     
     # Create some particles
     y00, r0, pA = create_particles(Nx, rho0, width, height, ice_max, P, compress)
@@ -528,8 +571,7 @@ def main():
     pA[pA['label'] == ParticleType.Coupled]['m'] = P['m']
 
     # Compute damping matrix
-    # xi     = 1 / P['ice_v'] ** 2 * 6          # Damping factor [-]
-    xi     = 1 / P['ice_v'] ** 2 * 5          # Damping factor [-]
+    xi     = 2e1                              # Damping factor [-]
     c_crit = np.sqrt(rho * A * rho0 * P['g']) # Critical damping factor [-]
     C      = np.eye(n) * 2 * xi * c_crit      # Damping matrix [N/s]
 
@@ -539,8 +581,8 @@ def main():
     method     = WCSPH(height=height, rho0=rho0, r0=r0, useXSPH=XSPH, Pb=0, useSummationDensity=False)
     integrator = PEC(useXSPH=XSPH, strict=False)
     solver     = Solver(
-                    method, integrator, kernel, duration, quick=False, 
-                    incrementalWriteout=False, maxSettle=1, exportProperties=['x', 'y', 'p', 'vx', 'vy', 'rho'], 
+                    method, integrator, kernel, duration, quick=False, damping=0.0,
+                    incrementalWriteout=False, maxSettle=1800, customSettle=custom_settling, exportProperties=['x', 'y', 'p', 'rho'], 
                     coupling=coupling, couplingIntegrator=newmark, couplingProperties=P, timeStep=None
                 )
 
